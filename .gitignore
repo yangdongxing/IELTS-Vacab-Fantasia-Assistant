@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Runtime data (stats are user-specific)
+chrome-extension/data/stats.json
