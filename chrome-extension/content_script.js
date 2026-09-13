@@ -177,43 +177,93 @@
         console.log("[ISA] Available voices (" + voices.length + "):",
             voices.map(v => v.name + " [" + v.lang + "]").join(", "));
 
-        // English: prefer natural/premium voices (including Mac default say voices)
-        const enPref = [
-            "Siri (Voice 1)", "Siri (Voice 2)", "Siri (Voice 3)", "Siri (Voice 4)", "Siri (Voice 5)",
-            "Samantha (Enhanced)", "Samantha (Premium)", "Samantha",
-            "Alex",
-            "Daniel (Enhanced)", "Daniel (Premium)", "Daniel",
-            "Karen (Enhanced)", "Karen (Premium)", "Karen",
-            "Moira (Enhanced)", "Moira",
-            "Fred", "Victoria",
-            "Google US English", "Google UK English Female",
-        ];
+        const isEdge = typeof navigator !== "undefined" && (/Edg\//i.test(navigator.userAgent) || /Edge\//i.test(navigator.userAgent));
         const enVoices = voices.filter(v => v.lang && v.lang.startsWith("en"));
-        for (const name of enPref) {
-            const found = enVoices.find(v => v.name === name);
-            if (found) { _voiceCache.en = found; break; }
-        }
-        if (!_voiceCache.en) {
-            _voiceCache.en = enVoices.find(v => /premium|enhanced|natural/i.test(v.name)) || enVoices[0] || null;
+        const zhVoices = voices.filter(v => v.lang && (v.lang.startsWith("zh-CN") || v.lang.startsWith("zh_CN") || v.lang.startsWith("zh-TW") || v.lang === "zh-CN"));
+
+        // Microsoft Edge: prioritize Microsoft Natural neural voices (Aria/Jenny/Xiaoxiao/Yunxi)
+        if (isEdge) {
+            const edgeEnPref = [
+                "Microsoft Aria Online (Natural) - English (United States)",
+                "Microsoft Jenny Online (Natural) - English (United States)",
+                "Microsoft Guy Online (Natural) - English (United States)",
+                "Microsoft Christopher Online (Natural) - English (United States)",
+                "Microsoft Eric Online (Natural) - English (United States)",
+                "Microsoft Sonia Online (Natural) - English (United Kingdom)",
+                "Microsoft Ryan Online (Natural) - English (United Kingdom)",
+                "Microsoft Libby Online (Natural) - English (United Kingdom)",
+                "Microsoft Aria (Natural) - English (United States)",
+                "Microsoft Jenny (Natural) - English (United States)",
+                "Microsoft Guy (Natural) - English (United States)",
+            ];
+            for (const name of edgeEnPref) {
+                const found = enVoices.find(v => v.name === name);
+                if (found) { _voiceCache.en = found; break; }
+            }
+            if (!_voiceCache.en) {
+                _voiceCache.en = enVoices.find(v => /Microsoft.*Natural/i.test(v.name))
+                    || enVoices.find(v => /Aria|Jenny|Guy|Christopher|Sonia/i.test(v.name))
+                    || enVoices.find(v => /Microsoft/i.test(v.name));
+            }
+
+            const edgeZhPref = [
+                "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+                "Microsoft Yunxi Online (Natural) - Chinese (Mainland)",
+                "Microsoft Yunjian Online (Natural) - Chinese (Mainland)",
+                "Microsoft Xiaoyi Online (Natural) - Chinese (Mainland)",
+                "Microsoft Yunyang Online (Natural) - Chinese (Mainland)",
+                "Microsoft Xiaoxiao (Natural) - Chinese (Mainland)",
+                "Microsoft Yunxi (Natural) - Chinese (Mainland)",
+            ];
+            for (const name of edgeZhPref) {
+                const found = zhVoices.find(v => v.name === name);
+                if (found) { _voiceCache.zh = found; break; }
+            }
+            if (!_voiceCache.zh) {
+                _voiceCache.zh = zhVoices.find(v => /Microsoft.*Natural/i.test(v.name))
+                    || zhVoices.find(v => /Xiaoxiao|Yunxi|Yunjian|Xiaoyi/i.test(v.name))
+                    || zhVoices.find(v => /Microsoft/i.test(v.name));
+            }
         }
 
-        // Chinese: prefer natural/premium voices
-        const zhPref = [
-            "Tingting (Enhanced)", "Tingting (Premium)", "Tingting",
-            "Sinji (Enhanced)", "Sinji (Premium)", "Sinji",
-            "Google 普通话（中国大陆）", "Google 中文（普通话）",
-        ];
-        const zhVoices = voices.filter(v => v.lang && (v.lang.startsWith("zh-CN") || v.lang.startsWith("zh_CN") || v.lang.startsWith("zh-TW") || v.lang === "zh-CN"));
-        for (const name of zhPref) {
-            const found = zhVoices.find(v => v.name === name);
-            if (found) { _voiceCache.zh = found; break; }
+        // Chrome / non-Edge / fallback: keep existing voice selection untouched
+        if (!_voiceCache.en) {
+            const enPref = [
+                "Siri (Voice 1)", "Siri (Voice 2)", "Siri (Voice 3)", "Siri (Voice 4)", "Siri (Voice 5)",
+                "Samantha (Enhanced)", "Samantha (Premium)", "Samantha",
+                "Alex",
+                "Daniel (Enhanced)", "Daniel (Premium)", "Daniel",
+                "Karen (Enhanced)", "Karen (Premium)", "Karen",
+                "Moira (Enhanced)", "Moira",
+                "Fred", "Victoria",
+                "Google US English", "Google UK English Female",
+            ];
+            for (const name of enPref) {
+                const found = enVoices.find(v => v.name === name);
+                if (found) { _voiceCache.en = found; break; }
+            }
+            if (!_voiceCache.en) {
+                _voiceCache.en = enVoices.find(v => /premium|enhanced|natural/i.test(v.name)) || enVoices[0] || null;
+            }
         }
+
         if (!_voiceCache.zh) {
-            _voiceCache.zh = zhVoices.find(v => /premium|enhanced|natural/i.test(v.name)) || zhVoices[0] || null;
+            const zhPref = [
+                "Tingting (Enhanced)", "Tingting (Premium)", "Tingting",
+                "Sinji (Enhanced)", "Sinji (Premium)", "Sinji",
+                "Google 普通话（中国大陆）", "Google 中文（普通话）",
+            ];
+            for (const name of zhPref) {
+                const found = zhVoices.find(v => v.name === name);
+                if (found) { _voiceCache.zh = found; break; }
+            }
+            if (!_voiceCache.zh) {
+                _voiceCache.zh = zhVoices.find(v => /premium|enhanced|natural/i.test(v.name)) || zhVoices[0] || null;
+            }
         }
 
         _voiceCache.ready = true;
-        console.log("[ISA] Voices selected — EN:", _voiceCache.en ? _voiceCache.en.name : "(default)", "| ZH:", _voiceCache.zh ? _voiceCache.zh.name : "(default)");
+        console.log("[ISA] Voices selected (" + (isEdge ? "Edge" : "Chrome/Standard") + ") — EN:", _voiceCache.en ? _voiceCache.en.name : "(default)", "| ZH:", _voiceCache.zh ? _voiceCache.zh.name : "(default)");
     }
 
     // Chrome loads voices async — listen for the event

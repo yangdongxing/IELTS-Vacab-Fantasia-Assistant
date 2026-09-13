@@ -299,7 +299,8 @@
                 <p>记录网页正文划词标记、全局覆层弹开、拼写验证等全流程学习轨迹</p>
             </div>
             <div class="action-buttons">
-                <button id="btn-export-csv" class="btn btn-outline">📥 导出 CSV</button>
+                <input type="file" id="input-import-json" accept=".json,application/json" style="display: none;">
+                <button id="btn-import-json" class="btn btn-outline">📤 导入 JSON</button>
                 <button id="btn-export-json" class="btn btn-outline">📥 导出 JSON</button>
                 <button id="btn-clear" class="btn btn-danger">🗑️ 清空统计</button>
             </div>
@@ -492,37 +493,89 @@
             const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
             if (!voices.length) return;
 
-            const enPref = [
-                "Siri (Voice 1)", "Siri (Voice 2)", "Siri (Voice 3)", "Siri (Voice 4)", "Siri (Voice 5)",
-                "Samantha (Enhanced)", "Samantha (Premium)", "Samantha",
-                "Alex",
-                "Daniel (Enhanced)", "Daniel (Premium)", "Daniel",
-                "Karen (Enhanced)", "Karen (Premium)", "Karen",
-                "Moira (Enhanced)", "Moira",
-                "Fred", "Victoria",
-                "Google US English", "Google UK English Female",
-            ];
+            const isEdge = typeof navigator !== "undefined" && (/Edg\//i.test(navigator.userAgent) || /Edge\//i.test(navigator.userAgent));
             const enVoices = voices.filter(v => v.lang && v.lang.startsWith("en"));
-            for (const name of enPref) {
-                const found = enVoices.find(v => v.name === name);
-                if (found) { _voiceCache.en = found; break; }
-            }
-            if (!_voiceCache.en) {
-                _voiceCache.en = enVoices.find(v => /premium|enhanced|natural/i.test(v.name)) || enVoices[0] || null;
+            const zhVoices = voices.filter(v => v.lang && (v.lang.startsWith("zh-CN") || v.lang.startsWith("zh_CN") || v.lang.startsWith("zh-TW") || v.lang === "zh-CN"));
+
+            // Microsoft Edge: prioritize Microsoft Natural neural voices (Aria/Jenny/Xiaoxiao/Yunxi)
+            if (isEdge) {
+                const edgeEnPref = [
+                    "Microsoft Aria Online (Natural) - English (United States)",
+                    "Microsoft Jenny Online (Natural) - English (United States)",
+                    "Microsoft Guy Online (Natural) - English (United States)",
+                    "Microsoft Christopher Online (Natural) - English (United States)",
+                    "Microsoft Eric Online (Natural) - English (United States)",
+                    "Microsoft Sonia Online (Natural) - English (United Kingdom)",
+                    "Microsoft Ryan Online (Natural) - English (United Kingdom)",
+                    "Microsoft Libby Online (Natural) - English (United Kingdom)",
+                    "Microsoft Aria (Natural) - English (United States)",
+                    "Microsoft Jenny (Natural) - English (United States)",
+                    "Microsoft Guy (Natural) - English (United States)",
+                ];
+                for (const name of edgeEnPref) {
+                    const found = enVoices.find(v => v.name === name);
+                    if (found) { _voiceCache.en = found; break; }
+                }
+                if (!_voiceCache.en) {
+                    _voiceCache.en = enVoices.find(v => /Microsoft.*Natural/i.test(v.name))
+                        || enVoices.find(v => /Aria|Jenny|Guy|Christopher|Sonia/i.test(v.name))
+                        || enVoices.find(v => /Microsoft/i.test(v.name));
+                }
+
+                const edgeZhPref = [
+                    "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+                    "Microsoft Yunxi Online (Natural) - Chinese (Mainland)",
+                    "Microsoft Yunjian Online (Natural) - Chinese (Mainland)",
+                    "Microsoft Xiaoyi Online (Natural) - Chinese (Mainland)",
+                    "Microsoft Yunyang Online (Natural) - Chinese (Mainland)",
+                    "Microsoft Xiaoxiao (Natural) - Chinese (Mainland)",
+                    "Microsoft Yunxi (Natural) - Chinese (Mainland)",
+                ];
+                for (const name of edgeZhPref) {
+                    const found = zhVoices.find(v => v.name === name);
+                    if (found) { _voiceCache.zh = found; break; }
+                }
+                if (!_voiceCache.zh) {
+                    _voiceCache.zh = zhVoices.find(v => /Microsoft.*Natural/i.test(v.name))
+                        || zhVoices.find(v => /Xiaoxiao|Yunxi|Yunjian|Xiaoyi/i.test(v.name))
+                        || zhVoices.find(v => /Microsoft/i.test(v.name));
+                }
             }
 
-            const zhPref = [
-                "Tingting (Enhanced)", "Tingting (Premium)", "Tingting",
-                "Sinji (Enhanced)", "Sinji (Premium)", "Sinji",
-                "Google 普通话（中国大陆）", "Google 中文（普通话）",
-            ];
-            const zhVoices = voices.filter(v => v.lang && (v.lang.startsWith("zh-CN") || v.lang.startsWith("zh_CN") || v.lang.startsWith("zh-TW") || v.lang === "zh-CN"));
-            for (const name of zhPref) {
-                const found = zhVoices.find(v => v.name === name);
-                if (found) { _voiceCache.zh = found; break; }
+            // Chrome / non-Edge / fallback: keep existing voice selection untouched
+            if (!_voiceCache.en) {
+                const enPref = [
+                    "Siri (Voice 1)", "Siri (Voice 2)", "Siri (Voice 3)", "Siri (Voice 4)", "Siri (Voice 5)",
+                    "Samantha (Enhanced)", "Samantha (Premium)", "Samantha",
+                    "Alex",
+                    "Daniel (Enhanced)", "Daniel (Premium)", "Daniel",
+                    "Karen (Enhanced)", "Karen (Premium)", "Karen",
+                    "Moira (Enhanced)", "Moira",
+                    "Fred", "Victoria",
+                    "Google US English", "Google UK English Female",
+                ];
+                for (const name of enPref) {
+                    const found = enVoices.find(v => v.name === name);
+                    if (found) { _voiceCache.en = found; break; }
+                }
+                if (!_voiceCache.en) {
+                    _voiceCache.en = enVoices.find(v => /premium|enhanced|natural/i.test(v.name)) || enVoices[0] || null;
+                }
             }
+
             if (!_voiceCache.zh) {
-                _voiceCache.zh = zhVoices.find(v => /premium|enhanced|natural/i.test(v.name)) || zhVoices[0] || null;
+                const zhPref = [
+                    "Tingting (Enhanced)", "Tingting (Premium)", "Tingting",
+                    "Sinji (Enhanced)", "Sinji (Premium)", "Sinji",
+                    "Google 普通话（中国大陆）", "Google 中文（普通话）",
+                ];
+                for (const name of zhPref) {
+                    const found = zhVoices.find(v => v.name === name);
+                    if (found) { _voiceCache.zh = found; break; }
+                }
+                if (!_voiceCache.zh) {
+                    _voiceCache.zh = zhVoices.find(v => /premium|enhanced|natural/i.test(v.name)) || zhVoices[0] || null;
+                }
             }
 
             _voiceCache.ready = true;
@@ -1208,25 +1261,78 @@
             });
         });
 
-        // Export CSV
-        document.getElementById("btn-export-csv").addEventListener("click", () => {
-            const stats = loadStats();
-            const list = Object.values(stats.words || {});
-            if (list.length === 0) return alert("暂无数据可导出");
+        // Import JSON
+        const importInput = document.getElementById("input-import-json");
+        document.getElementById("btn-import-json").addEventListener("click", () => {
+            importInput.value = "";
+            importInput.click();
+        });
 
-            let csv = "\uFEFF序号,单词,释义,标记次数,覆层查看次数,拼写成功次数,最近更新时间\n";
-            list.forEach((item, i) => {
-                const def = lookupDef(item.w);
-                csv += `${i + 1},"${item.w}","${def.replace(/"/g, '""')}",${item.marks||0},${item.modalOpens||0},${item.inputSuccess||0},"${formatDate(item.lastUpdated)}"\n`;
-            });
+        importInput.addEventListener("change", (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
 
-            const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `ielts_vocab_stats_${new Date().toISOString().slice(0,10)}.csv`;
-            a.click();
-            URL.revokeObjectURL(url);
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const imported = JSON.parse(event.target.result);
+                    if (!imported || typeof imported !== "object") {
+                        throw new Error("格式无效");
+                    }
+
+                    const importedWords = imported.words && typeof imported.words === "object" ? imported.words : imported;
+                    const wordKeys = Object.keys(importedWords).filter(k => importedWords[k] && importedWords[k].w);
+
+                    if (wordKeys.length === 0) {
+                        alert("⚠️ 文件中未找到有效的打点单词数据。");
+                        return;
+                    }
+
+                    const local = loadStats();
+                    if (!local.words) local.words = {};
+
+                    let mergedCount = 0;
+                    wordKeys.forEach(k => {
+                        const incoming = importedWords[k];
+                        const existing = local.words[k];
+                        if (!existing) {
+                            local.words[k] = incoming;
+                            mergedCount++;
+                        } else {
+                            existing.marks = Math.max(existing.marks || 0, incoming.marks || 0);
+                            existing.modalOpens = Math.max(existing.modalOpens || 0, incoming.modalOpens || 0);
+                            existing.inputSuccess = Math.max(existing.inputSuccess || 0, incoming.inputSuccess || 0);
+                            existing.lastUpdated = Math.max(existing.lastUpdated || 0, incoming.lastUpdated || 0);
+                            mergedCount++;
+                        }
+                    });
+
+                    // Recalculate summary counters
+                    let totalMarks = 0, totalModal = 0, totalSuccess = 0;
+                    Object.values(local.words).forEach(w => {
+                        totalMarks += (w.marks || 0);
+                        totalModal += (w.modalOpens || 0);
+                        totalSuccess += (w.inputSuccess || 0);
+                    });
+                    local.summary = { marks: totalMarks, modalOpens: totalModal, inputSuccess: totalSuccess };
+
+                    saveStats(local);
+                    if (typeof GM_setValue === "function") {
+                        try { GM_setValue(STATS_STORAGE_KEY, local); } catch (err) {}
+                    }
+                    fetch("http://127.0.0.1:8777/api/stats", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(local)
+                    }).catch(() => {});
+
+                    render();
+                    alert(`✅ 成功导入并合并 ${mergedCount} 个单词的打点统计数据！`);
+                } catch (err) {
+                    alert("❌ 导入失败：JSON 文件格式不正确或解析出错。");
+                }
+            };
+            reader.readAsText(file, "UTF-8");
         });
 
         // Export JSON
