@@ -473,6 +473,10 @@
     const rootWin = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
     rootWin.ieltsVocabStats = {
         getStats: loadStats,
+        setStats: (newStats) => {
+            saveStats(newStats);
+            window.dispatchEvent(new CustomEvent("ielts_stats_updated", { detail: newStats }));
+        },
         getSummary: () => loadStats().summary,
         getTopWords: (sortBy = "marks", limit = 10) => {
             const stats = loadStats();
@@ -498,14 +502,56 @@
         }
     };
 
-    // If opening a page with explicit meta tag, sync storage and exit to avoid UI duplication
+    window.addEventListener("ielts_stats_save_request", (e) => {
+        if (e.detail && typeof e.detail === "object") {
+            saveStats(e.detail);
+        }
+    });
+
+    // If opening a page with explicit meta tag, smart-merge storage and exit to avoid UI duplication
     if (document.querySelector('meta[name="ielts-vocab-disable-plugin"]')) {
         try {
-            const s = loadStats();
-            if (s && s.words) {
-                localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(s));
-                window.dispatchEvent(new CustomEvent("ielts_stats_loaded_from_tampermonkey", { detail: s }));
+            const gmData = loadStats();
+            let localData = null;
+            try {
+                const raw = localStorage.getItem(STATS_STORAGE_KEY);
+                if (raw) localData = JSON.parse(raw);
+            } catch (e) {}
+
+            const merged = {
+                summary: { marks: 0, modalOpens: 0, inputSuccess: 0 },
+                words: { ...(gmData?.words || {}) }
+            };
+
+            let hasNewFromLocal = false;
+            if (localData && localData.words) {
+                Object.keys(localData.words).forEach(k => {
+                    const localItem = localData.words[k];
+                    const gmItem = merged.words[k];
+                    if (!gmItem || (localItem.lastUpdated || 0) >= (gmItem.lastUpdated || 0)) {
+                        merged.words[k] = localItem;
+                        hasNewFromLocal = true;
+                    } else {
+                        gmItem.marks = Math.max(gmItem.marks || 0, localItem.marks || 0);
+                        gmItem.modalOpens = Math.max(gmItem.modalOpens || 0, localItem.modalOpens || 0);
+                        gmItem.inputSuccess = Math.max(gmItem.inputSuccess || 0, localItem.inputSuccess || 0);
+                    }
+                });
             }
+
+            let totalMarks = 0, totalModal = 0, totalSuccess = 0;
+            Object.values(merged.words).forEach(w => {
+                totalMarks += (w.marks || 0);
+                totalModal += (w.modalOpens || 0);
+                totalSuccess += (w.inputSuccess || 0);
+            });
+            merged.summary = { marks: totalMarks, modalOpens: totalModal, inputSuccess: totalSuccess };
+
+            localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(merged));
+            if (hasNewFromLocal) {
+                saveStats(merged);
+            }
+            window.dispatchEvent(new CustomEvent("ielts_stats_loaded_from_tampermonkey", { detail: merged }));
         } catch (e) {}
         console.log("[ISA] ielts-vocab-disable-plugin meta detected — extension UI and listeners disabled.");
         return;

@@ -417,23 +417,63 @@
         }
 
         function loadStats() {
+            let gmStats = null;
             if (window.ieltsVocabStats && typeof window.ieltsVocabStats.getStats === "function") {
                 try {
                     const s = window.ieltsVocabStats.getStats();
-                    if (s && s.words && Object.keys(s.words).length > 0) return s;
+                    if (s && s.words) gmStats = s;
                 } catch (e) {}
             }
+            let localStats = null;
             try {
                 const raw = localStorage.getItem(STATS_STORAGE_KEY);
-                return raw ? JSON.parse(raw) : { summary: { marks: 0, modalOpens: 0, inputSuccess: 0 }, words: {} };
+                if (raw) localStats = JSON.parse(raw);
             } catch (e) {
+                localStats = null;
+            }
+
+            if (!gmStats && !localStats) {
                 return { summary: { marks: 0, modalOpens: 0, inputSuccess: 0 }, words: {} };
             }
+            if (!gmStats) return localStats;
+            if (!localStats) return gmStats;
+
+            // Merge GM stats and local storage stats seamlessly
+            const merged = {
+                summary: { marks: 0, modalOpens: 0, inputSuccess: 0 },
+                words: { ...(gmStats.words || {}) }
+            };
+            Object.keys(localStats.words || {}).forEach(k => {
+                const incoming = localStats.words[k];
+                const existing = merged.words[k];
+                if (!existing || (incoming.lastUpdated || 0) >= (existing.lastUpdated || 0)) {
+                    merged.words[k] = incoming;
+                } else {
+                    existing.marks = Math.max(existing.marks || 0, incoming.marks || 0);
+                    existing.modalOpens = Math.max(existing.modalOpens || 0, incoming.modalOpens || 0);
+                    existing.inputSuccess = Math.max(existing.inputSuccess || 0, incoming.inputSuccess || 0);
+                }
+            });
+
+            let totalMarks = 0, totalModal = 0, totalSuccess = 0;
+            Object.values(merged.words).forEach(w => {
+                totalMarks += (w.marks || 0);
+                totalModal += (w.modalOpens || 0);
+                totalSuccess += (w.inputSuccess || 0);
+            });
+            merged.summary = { marks: totalMarks, modalOpens: totalModal, inputSuccess: totalSuccess };
+            return merged;
         }
 
         function saveStats(stats) {
             try {
                 localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(stats));
+            } catch (e) {}
+            if (window.ieltsVocabStats && typeof window.ieltsVocabStats.setStats === "function") {
+                try { window.ieltsVocabStats.setStats(stats); } catch (e) {}
+            }
+            try {
+                window.dispatchEvent(new CustomEvent("ielts_stats_save_request", { detail: stats }));
             } catch (e) {}
         }
 
@@ -1262,6 +1302,53 @@
         });
 
         // Import JSON
+        function normalizeImportData(imported) {
+            if (!imported) return {};
+            const normalized = {};
+
+            let list = [];
+            if (Array.isArray(imported)) {
+                list = imported;
+            } else if (typeof imported === "object") {
+                if (imported.words && typeof imported.words === "object") {
+                    if (Array.isArray(imported.words)) {
+                        list = imported.words;
+                    } else {
+                        Object.entries(imported.words).forEach(([key, val]) => {
+                            const word = (val && val.w) ? val.w : key;
+                            if (word && typeof word === "string" && word.trim()) {
+                                list.push(typeof val === "object" ? { ...val, w: word } : { w: word });
+                            }
+                        });
+                    }
+                } else {
+                    Object.entries(imported).forEach(([key, val]) => {
+                        if (key === "summary") return;
+                        const word = (val && val.w) ? val.w : key;
+                        if (word && typeof word === "string" && word.trim()) {
+                            list.push(typeof val === "object" ? { ...val, w: word } : { w: word });
+                        }
+                    });
+                }
+            }
+
+            list.forEach(item => {
+                if (!item) return;
+                const word = typeof item === "string" ? item.trim() : (item.w || "").trim();
+                if (!word) return;
+                const key = word.toLowerCase();
+                normalized[key] = {
+                    w: word,
+                    marks: typeof item === "object" ? (Number(item.marks) || 0) : 1,
+                    modalOpens: typeof item === "object" ? (Number(item.modalOpens) || 0) : 0,
+                    inputSuccess: typeof item === "object" ? (Number(item.inputSuccess) || 0) : 0,
+                    lastUpdated: typeof item === "object" && item.lastUpdated ? Number(item.lastUpdated) : Date.now()
+                };
+            });
+
+            return normalized;
+        }
+
         const importInput = document.getElementById("input-import-json");
         document.getElementById("btn-import-json").addEventListener("click", () => {
             importInput.value = "";
@@ -1280,8 +1367,8 @@
                         throw new Error("格式无效");
                     }
 
-                    const importedWords = imported.words && typeof imported.words === "object" ? imported.words : imported;
-                    const wordKeys = Object.keys(importedWords).filter(k => importedWords[k] && importedWords[k].w);
+                    const importedWords = normalizeImportData(imported);
+                    const wordKeys = Object.keys(importedWords);
 
                     if (wordKeys.length === 0) {
                         alert("⚠️ 文件中未找到有效的打点单词数据。");
@@ -1327,8 +1414,9 @@
                     }).catch(() => {});
 
                     render();
-                    alert(`✅ 成功导入并合并 ${mergedCount} 个单词的打点统计数据！`);
+                    alert(`✅ 成功导入并生效 ${mergedCount} 个单词的打点数据！`);
                 } catch (err) {
+                    console.error("Import error:", err);
                     alert("❌ 导入失败：JSON 文件格式不正确或解析出错。");
                 }
             };
