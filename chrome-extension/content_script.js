@@ -448,8 +448,8 @@
         }
     };
 
-    // If opening a stats page (file://, localhost, or GitHub Pages), sync Tampermonkey storage to the page
-    if (window.location.href.includes("stats.html")) {
+    // If opening a page with explicit meta tag, sync storage and exit to avoid UI duplication
+    if (document.querySelector('meta[name="ielts-vocab-disable-plugin"]')) {
         try {
             const s = loadStats();
             if (s && s.words) {
@@ -457,6 +457,8 @@
                 window.dispatchEvent(new CustomEvent("ielts_stats_loaded_from_tampermonkey", { detail: s }));
             }
         } catch (e) {}
+        console.log("[ISA] ielts-vocab-disable-plugin meta detected — extension UI and listeners disabled.");
+        return;
     }
 
     // ==========================================
