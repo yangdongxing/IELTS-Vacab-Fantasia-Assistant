@@ -79,6 +79,16 @@
         .kpi-card.purple .value { color: var(--purple); }
         .kpi-card.green .value { color: var(--green); }
         .kpi-card.rose .value { color: var(--rose); }
+        .kpi-sub {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+        .kpi-value-row {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }
 
         .toolbar {
             background: var(--surface);
@@ -270,7 +280,10 @@
         <section class="kpi-grid">
             <div class="kpi-card blue">
                 <span class="label">📘 累计打点单词数</span>
-                <span class="value" id="kpi-words">0</span>
+                <div class="kpi-value-row">
+                    <span class="value" id="kpi-words">0</span>
+                    <span class="kpi-sub" id="kpi-words-detail"></span>
+                </div>
             </div>
             <div class="kpi-card rose">
                 <span class="label">🔖 网页正文标记总次数</span>
@@ -291,10 +304,11 @@
                 <input type="text" id="search-input" placeholder="🔍 搜索单词或中文释义...">
             </div>
             <div class="filter-buttons">
-                <button class="filter-btn active" data-filter="all">全部</button>
+                <button class="filter-btn active" data-filter="all">全部记录</button>
                 <button class="filter-btn" data-filter="marks">已标记词</button>
                 <button class="filter-btn" data-filter="modal">已查看大图</button>
                 <button class="filter-btn" data-filter="success">已拼写成功</button>
+                <button class="filter-btn" data-filter="unmarked">未标记词</button>
             </div>
         </div>
 
@@ -394,23 +408,50 @@
 
         function render() {
             const stats = loadStats();
-            const wordsList = Object.values(stats.words || {});
+            const allStatsWords = Object.values(stats.words || {});
             
-            // Calculate KPI
+            // Calculate KPI (always from stats, unaffected by filter)
             let totalMarks = 0;
             let totalModal = 0;
             let totalSuccess = 0;
 
-            wordsList.forEach(w => {
+            allStatsWords.forEach(w => {
                 totalMarks += (w.marks || 0);
                 totalModal += (w.modalOpens || 0);
                 totalSuccess += (w.inputSuccess || 0);
             });
 
-            document.getElementById("kpi-words").textContent = wordsList.length;
+            document.getElementById("kpi-words").textContent = allStatsWords.length;
             document.getElementById("kpi-marks").textContent = totalMarks;
             document.getElementById("kpi-modal").textContent = totalModal;
             document.getElementById("kpi-success").textContent = totalSuccess;
+
+            // Calculate unmarked count and update KPI detail + tab button
+            const totalDict = Object.keys(DICT).length;
+            const markedCount = allStatsWords.filter(w => (w.marks || 0) > 0).length;
+            const unmarkedCount = totalDict - markedCount;
+            document.getElementById("kpi-words-detail").textContent = `+ ${unmarkedCount} = ${totalDict}`;
+            document.querySelector('.filter-btn[data-filter="unmarked"]').textContent = `未标记词(${unmarkedCount})`;
+
+            // Determine data source based on filter
+            let wordsList;
+            if (currentFilter === "unmarked") {
+                const statsWords = stats.words || {};
+                wordsList = Object.keys(DICT)
+                    .filter(k => !statsWords[k] || !(statsWords[k].marks > 0))
+                    .map(k => {
+                        const sw = statsWords[k];
+                        return {
+                            w: DICT[k].w,
+                            marks: sw ? (sw.marks || 0) : 0,
+                            modalOpens: sw ? (sw.modalOpens || 0) : 0,
+                            inputSuccess: sw ? (sw.inputSuccess || 0) : 0,
+                            lastUpdated: sw ? (sw.lastUpdated || null) : null
+                        };
+                    });
+            } else {
+                wordsList = allStatsWords;
+            }
 
             // Filter
             let filtered = wordsList.filter(item => {
