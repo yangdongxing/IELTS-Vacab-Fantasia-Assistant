@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>雅思真经划词划划看 (IELTS Vocab Fantasia Assistant)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: #0f172a; color: #e2e8f0; min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 2rem;
+  }
+  h1 { font-size: 2rem; margin-bottom: 0.5rem; color: #7dd3fc; }
+  .subtitle { color: #94a3b8; margin-bottom: 2.5rem; font-size: 1.05rem; }
+  .cards { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; max-width: 700px; }
+  .card {
+    background: #1e293b; border-radius: 12px; padding: 2rem 1.8rem;
+    text-decoration: none; color: #e2e8f0; flex: 1; min-width: 260px;
+    transition: transform 0.2s, box-shadow 0.2s; border: 1px solid #334155;
+  }
+  .card:hover { transform: translateY(-4px); box-shadow: 0 8px 25px rgba(0,0,0,0.3); border-color: #7dd3fc; }
+  .card-icon { font-size: 2.5rem; margin-bottom: 0.8rem; }
+  .card-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 0.5rem; color: #f1f5f9; }
+  .card-desc { font-size: 0.9rem; color: #94a3b8; line-height: 1.5; }
+  .footer { margin-top: 3rem; text-align: center; }
+  .footer a { color: #7dd3fc; text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+  .footer p { color: #64748b; font-size: 0.85rem; margin-top: 0.5rem; }
+</style>
+</head>
+<body>
+  <h1>雅思真经划词划划看</h1>
+  <p class="subtitle">IELTS Vocab Fantasia Assistant</p>
+  <div class="cards">
+    <a class="card" href="tampermonkey/stats.html">
+      <div class="card-icon">📊</div>
+      <div class="card-title">数据统计大屏</div>
+      <div class="card-desc">查看单词标记次数、覆层查看次数、拼写成功次数等学习打点数据。</div>
+    </a>
+    <a class="card" href="tampermonkey/tampermonkey.user.js">
+      <div class="card-icon">🐵</div>
+      <div class="card-title">安装油猴脚本</div>
+      <div class="card-desc">一键安装 Tampermonkey 用户脚本，在任意英文网页上划词标注雅思真经词汇。</div>
+    </a>
+    <a class="card" href="tampermonkey/test.html">
+      <div class="card-icon">🧪</div>
+      <div class="card-title">功能测试页</div>
+      <div class="card-desc">内置测试页面，快速验证划词标注、Tips 气泡、大图覆层等核心功能。</div>
+    </a>
+  </div>
+  <div class="footer">
+    <a href="https://github.com/yangdongxing/IELTS-Vacab-Fantasia-Assistant">GitHub 仓库</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/yangdongxing/IELTS-Vacab-Fantasia">主项目 IELTS-Vacab-Fantasia</a>
+    <p>Chrome 扩展请 clone 仓库后加载 chrome-extension/ 目录</p>
+  </div>
+</body>
+</html>
