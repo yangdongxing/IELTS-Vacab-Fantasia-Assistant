@@ -360,6 +360,21 @@
         } catch (e) { console.warn("[ISA] speakBilingual error:", e); }
     }
 
+    /**
+     * Extracts pure Chinese explanation from dictionary definition (removes POS tags like n., v., /phonetics/)
+     */
+    function cleanChineseDefinition(def) {
+        if (!def) return "";
+        const s = def
+            .replace(/\/[^/\s]+\//g, "")
+            .replace(/^(?:[a-zA-Z\./\s]+)+/g, "")
+            .replace(/\[[^\]]*\]/g, "")
+            .replace(/[；;/\\]+/g, "，")
+            .replace(/，\s*，/g, "，")
+            .replace(/^[，\s]+|[，\s]+$/g, "");
+        return s || def;
+    }
+
     // ==========================================
     // Word Image Resolution & Fallback
     // ==========================================
@@ -1155,7 +1170,8 @@
 
         memoryModalRefs.word.addEventListener("click", () => {
             if (currentMemoryData) {
-                speakText(currentMemoryData.w);
+                const cleanZh = cleanChineseDefinition(currentMemoryData.d);
+                speakBilingualExample(currentMemoryData.w, cleanZh);
             }
             requestAnimationFrame(focusMemoryAnswer);
         });
@@ -1298,10 +1314,9 @@
         refs.modal.classList.add("open");
         focusMemoryAnswer();
 
-        // Auto-play bilingual example sentences on modal open
-        if (spoken.en || spoken.zh) {
-            speakBilingualExample(spoken.en || "", spoken.zh || "");
-        }
+        // Auto-play English word + Chinese definition on modal open
+        const cleanZh = cleanChineseDefinition(entry.d);
+        speakBilingualExample(entry.w, cleanZh);
     }
 
     function closeMemoryModal() {
