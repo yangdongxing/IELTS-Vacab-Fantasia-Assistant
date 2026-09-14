@@ -1003,7 +1003,69 @@
     // ==========================================
     let memoryModalRefs = null;
     let currentMemoryData = null;
+    let currentMemoryMark = null;
     let autoCloseTimer = null;
+
+    function findParagraphElementForMark(markEl) {
+        if (!markEl) return null;
+        const block = markEl.closest("p, blockquote, li, pre, dd, dt, .sample-box, .paragraph");
+        if (block && !["ARTICLE", "SECTION", "MAIN", "BODY", "HTML"].includes(block.tagName)) {
+            return block;
+        }
+        let cur = markEl.parentElement;
+        while (cur && cur.parentElement && !["ARTICLE", "SECTION", "MAIN", "BODY", "HTML"].includes(cur.tagName)) {
+            const display = window.getComputedStyle(cur).display;
+            if (display === "block" || display === "flex" || display === "grid" || display === "list-item") {
+                return cur;
+            }
+            cur = cur.parentElement;
+        }
+        return cur || markEl.parentElement;
+    }
+
+    function getEntryFromMark(markEl) {
+        if (!markEl) return null;
+        if (markEl._entry) return markEl._entry;
+        if (markEl.dataset && markEl.dataset.word) {
+            const entry = lookupWord(markEl.dataset.word);
+            if (entry) return entry;
+        }
+        const textNode = markEl.childNodes[0];
+        const text = (textNode && textNode.nodeType === Node.TEXT_NODE ? textNode.nodeValue : markEl.textContent) || "";
+        return lookupWord(text.trim());
+    }
+
+    function getParagraphMarks(markEl) {
+        if (!markEl) return [];
+        const container = findParagraphElementForMark(markEl);
+        if (!container) return [markEl];
+        const allMarks = Array.from(container.querySelectorAll("strong.geek-vocab-mark"));
+        return allMarks.length > 0 ? allMarks : [markEl];
+    }
+
+    function getPrevMarkInParagraph() {
+        if (!currentMemoryMark) return null;
+        const marks = getParagraphMarks(currentMemoryMark);
+        const idx = marks.indexOf(currentMemoryMark);
+        if (idx > 0) {
+            const prevMark = marks[idx - 1];
+            const prevEntry = getEntryFromMark(prevMark);
+            if (prevEntry) return { mark: prevMark, entry: prevEntry };
+        }
+        return null;
+    }
+
+    function getNextMarkInParagraph() {
+        if (!currentMemoryMark) return null;
+        const marks = getParagraphMarks(currentMemoryMark);
+        const idx = marks.indexOf(currentMemoryMark);
+        if (idx >= 0 && idx < marks.length - 1) {
+            const nextMark = marks[idx + 1];
+            const nextEntry = getEntryFromMark(nextMark);
+            if (nextEntry) return { mark: nextMark, entry: nextEntry };
+        }
+        return null;
+    }
 
     function createMemoryModal() {
         if (memoryModalRefs) return memoryModalRefs;
@@ -1033,7 +1095,7 @@
                     height: min(740px, calc(100dvh - 48px));
                     max-height: calc(100vh - 48px);
                     display: grid;
-                    grid-template-rows: auto minmax(80px, 1fr) auto auto auto;
+                    grid-template-rows: auto auto minmax(80px, 1fr) auto auto auto;
                     overflow: hidden;
                     background: #111827;
                     color: #fff;
@@ -1047,6 +1109,63 @@
                     user-select: text;
                     -webkit-user-select: text;
                     position: relative;
+                }
+                .geek-memory-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    margin: 0 0 10px;
+                    padding: 0 2px;
+                    user-select: none;
+                    -webkit-user-select: none;
+                }
+                .geek-memory-progress {
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: rgba(255, 255, 255, 0.65);
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                }
+                .geek-memory-progress .geek-badge {
+                    background: rgba(125, 211, 252, 0.16);
+                    color: #7dd3fc;
+                    padding: 2px 8px;
+                    border-radius: 10px;
+                    font-size: 12px;
+                    font-weight: 700;
+                }
+                .geek-memory-nav {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                }
+                .geek-memory-btn-icon {
+                    background: rgba(255, 255, 255, 0.08);
+                    border: 1px solid rgba(255, 255, 255, 0.14);
+                    color: rgba(255, 255, 255, 0.8);
+                    border-radius: 6px;
+                    width: 28px;
+                    height: 28px;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    font-size: 15px;
+                    line-height: 1;
+                    transition: all 0.15s ease;
+                    padding: 0;
+                    box-sizing: border-box;
+                }
+                .geek-memory-btn-icon:hover:not(:disabled) {
+                    background: rgba(255, 255, 255, 0.2);
+                    color: #fff;
+                    border-color: rgba(255, 255, 255, 0.3);
+                }
+                .geek-memory-btn-icon:disabled {
+                    opacity: 0.28;
+                    cursor: not-allowed;
+                    pointer-events: none;
                 }
                 .geek-memory-word {
                     --geek-memory-word-drop: 0px;
@@ -1170,6 +1289,14 @@
             </style>
             <div class="geek-memory-shell">
               <div class="geek-memory-card" role="dialog" aria-modal="true">
+                <div class="geek-memory-header" id="geek-memory-header">
+                  <div class="geek-memory-progress" id="geek-memory-progress"></div>
+                  <div class="geek-memory-nav">
+                    <button type="button" class="geek-memory-btn-icon" id="geek-memory-prev" title="上一个词 (←)">‹</button>
+                    <button type="button" class="geek-memory-btn-icon" id="geek-memory-next" title="下一个词 (→)">›</button>
+                    <button type="button" class="geek-memory-btn-icon" id="geek-memory-close" title="关闭 (Esc)">✕</button>
+                  </div>
+                </div>
                 <h2 class="geek-memory-word" id="geek-memory-word" title="点击朗读单词"></h2>
                 <img class="geek-memory-image" id="geek-memory-image" alt="" draggable="false">
                 <p class="geek-memory-translation" id="geek-memory-translation"></p>
@@ -1189,6 +1316,11 @@
         memoryModalRefs = {
             modal,
             card,
+            header: shadow.getElementById("geek-memory-header"),
+            progress: shadow.getElementById("geek-memory-progress"),
+            prevBtn: shadow.getElementById("geek-memory-prev"),
+            nextBtn: shadow.getElementById("geek-memory-next"),
+            closeBtn: shadow.getElementById("geek-memory-close"),
             word: shadow.getElementById("geek-memory-word"),
             image: shadow.getElementById("geek-memory-image"),
             translation: shadow.getElementById("geek-memory-translation"),
@@ -1203,6 +1335,23 @@
         });
         card.addEventListener("click", event => {
             if (event.target === card) requestAnimationFrame(focusMemoryAnswer);
+        });
+
+        memoryModalRefs.prevBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const prevItem = getPrevMarkInParagraph();
+            if (prevItem) openMemoryModal(prevItem.entry, prevItem.mark);
+        });
+
+        memoryModalRefs.nextBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const nextItem = getNextMarkInParagraph();
+            if (nextItem) openMemoryModal(nextItem.entry, nextItem.mark);
+        });
+
+        memoryModalRefs.closeBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            closeMemoryModal();
         });
 
         memoryModalRefs.word.addEventListener("click", () => {
@@ -1225,6 +1374,26 @@
             if (event.key === "Escape") {
                 event.preventDefault();
                 closeMemoryModal();
+            } else if (event.key === "Enter" && answer.classList.contains("is-correct")) {
+                clearTimeout(autoCloseTimer);
+                const nextItem = getNextMarkInParagraph();
+                if (nextItem) {
+                    openMemoryModal(nextItem.entry, nextItem.mark);
+                } else {
+                    closeMemoryModal();
+                }
+            } else if (event.key === "ArrowRight" && (!answer.value || answer.selectionStart === answer.value.length)) {
+                const nextItem = getNextMarkInParagraph();
+                if (nextItem) {
+                    event.preventDefault();
+                    openMemoryModal(nextItem.entry, nextItem.mark);
+                }
+            } else if (event.key === "ArrowLeft" && (!answer.value || answer.selectionStart === 0)) {
+                const prevItem = getPrevMarkInParagraph();
+                if (prevItem) {
+                    event.preventDefault();
+                    openMemoryModal(prevItem.entry, prevItem.mark);
+                }
             }
         });
 
@@ -1279,6 +1448,38 @@
         });
     }
 
+    function updateMemoryModalNav() {
+        if (!memoryModalRefs) return;
+        const { progress, prevBtn, nextBtn } = memoryModalRefs;
+        if (!progress) return;
+
+        if (!currentMemoryMark) {
+            progress.style.display = "none";
+            if (prevBtn) prevBtn.style.display = "none";
+            if (nextBtn) nextBtn.style.display = "none";
+            return;
+        }
+
+        const marks = getParagraphMarks(currentMemoryMark);
+        const total = marks.length;
+        const idx = marks.indexOf(currentMemoryMark);
+
+        progress.style.display = "flex";
+        if (prevBtn) prevBtn.style.display = "inline-flex";
+        if (nextBtn) nextBtn.style.display = "inline-flex";
+
+        if (total <= 1) {
+            progress.innerHTML = `<span class="geek-badge">本段 1 个词汇</span>`;
+            if (prevBtn) prevBtn.disabled = true;
+            if (nextBtn) nextBtn.disabled = true;
+        } else {
+            const currentNum = idx >= 0 ? idx + 1 : 1;
+            progress.innerHTML = `<span>本段词汇</span> <span class="geek-badge">${currentNum} / ${total}</span>`;
+            if (prevBtn) prevBtn.disabled = (idx <= 0);
+            if (nextBtn) nextBtn.disabled = (idx >= total - 1);
+        }
+    }
+
     function handleAnswerInput(event) {
         if (!currentMemoryData) return;
         clearTimeout(autoCloseTimer);
@@ -1295,13 +1496,26 @@
 
         if (typed === target) {
             input.classList.add("is-correct");
+            input.readOnly = true;
             trackWordEvent(currentMemoryData.w, "input_success");
             playCorrectMemoryAnimation();
             speakText(currentMemoryData.w);
-            // Automatically close modal after 3 seconds upon success
-            autoCloseTimer = setTimeout(() => {
-                closeMemoryModal();
-            }, 3000);
+
+            const nextItem = getNextMarkInParagraph();
+            if (nextItem) {
+                // Auto-advance to the next word in the same paragraph after 1100ms
+                autoCloseTimer = setTimeout(() => {
+                    openMemoryModal(nextItem.entry, nextItem.mark);
+                }, 1100);
+            } else {
+                // All marked words in this paragraph have been completed!
+                if (memoryModalRefs && memoryModalRefs.progress) {
+                    memoryModalRefs.progress.innerHTML = `<span class="geek-badge" style="background: rgba(52, 211, 153, 0.22); color: #34d399; font-weight: 700;">🎉 本段词汇全部完成！</span>`;
+                }
+                autoCloseTimer = setTimeout(() => {
+                    closeMemoryModal();
+                }, 1600);
+            }
         } else if (!target.startsWith(typed)) {
             input.classList.add("is-wrong");
         }
@@ -1326,13 +1540,18 @@
         element.append(strong, document.createTextNode(sentence.slice(index + focus.length)));
     }
 
-    function openMemoryModal(entry) {
+    function openMemoryModal(entry, markEl = null) {
         clearTimeout(autoCloseTimer);
         const refs = createMemoryModal();
         currentMemoryData = entry;
+        if (markEl) {
+            currentMemoryMark = markEl;
+        }
         trackWordEvent(entry.w, "modal_open");
 
+        closeAllOpenedBubbles(null);
         resetMemoryAnimation();
+
         refs.word.textContent = entry.w;
         refs.image.style.opacity = "";  // reset from any previous load failure
         refs.image.src = getImageUrl(entry.w);
@@ -1345,11 +1564,20 @@
         renderFocusedExample(refs.exampleEnglish, spoken.en || "", spoken.focus || "");
         refs.exampleChinese.textContent = spoken.zh || "";
 
+        refs.answer.readOnly = false;
         refs.answer.value = "";
         refs.answer.classList.remove("is-correct", "is-wrong");
 
+        updateMemoryModalNav();
+
         refs.modal.classList.add("open");
         focusMemoryAnswer();
+
+        if (currentMemoryMark && typeof currentMemoryMark.scrollIntoView === "function") {
+            try {
+                currentMemoryMark.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            } catch (e) {}
+        }
 
         // Auto-play English word + Chinese definition (including part of speech) on modal open
         const cleanZh = formatChineseDefinitionForSpeech(entry.d);
@@ -1366,6 +1594,7 @@
             if (memoryModalRefs.answer) memoryModalRefs.answer.blur();
         }
         currentMemoryData = null;
+        currentMemoryMark = null;
         resetMemoryAnimation();
     }
 
@@ -1451,6 +1680,8 @@
                 // <strong class="geek-vocab-mark">token<span class="translation-bubble geek-has-word-image"><img class="geek-bubble-image" /><span class="geek-bubble-text">...</span></span></strong>
                 const mark = document.createElement("strong");
                 mark.className = "geek-vocab-mark";
+                mark._entry = m.entry;
+                mark.dataset.word = m.entry.w;
                 mark.appendChild(document.createTextNode(m.token));
 
                 const bubble = document.createElement("span");
@@ -1469,7 +1700,7 @@
                 image.addEventListener("click", (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    openMemoryModal(m.entry);
+                    openMemoryModal(m.entry, mark);
                 });
 
                 const textSpan = document.createElement("span");
@@ -1492,15 +1723,11 @@
                     requestAnimationFrame(() => placeBubble(bubble));
                 });
                 mark.addEventListener("click", (e) => {
-                    if (e.target.closest(".geek-bubble-image")) {
+                    if (e.target.closest(".geek-bubble-image") || e.target.closest(".geek-bubble-text")) {
                         return;
                     }
                     e.stopPropagation();
-                    closeAllOpenedBubbles(mark);
-                    mark.classList.add("geek-bubble-open");
-                    bubble.classList.add("force-show");
-                    requestAnimationFrame(() => placeBubble(bubble));
-                    speakText(m.entry.w);
+                    openMemoryModal(m.entry, mark);
                 });
 
                 fragment.appendChild(mark);
