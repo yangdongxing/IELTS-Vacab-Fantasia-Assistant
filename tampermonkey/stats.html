@@ -271,6 +271,81 @@
             text-decoration: underline;
         }
 
+        /* Hover Thumbnail Bubble Tips (Matches main plugin) */
+        .stats-hover-bubble {
+            position: fixed;
+            z-index: 99990;
+            background-color: #172033;
+            width: 240px;
+            max-width: min(240px, calc(100vw - 32px));
+            padding: 8px;
+            border-radius: 8px;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+            box-sizing: border-box;
+            pointer-events: none;
+            opacity: 0;
+            visibility: hidden;
+            transform: scale(0.92);
+            transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s ease;
+        }
+        .stats-hover-bubble.is-visible {
+            opacity: 1;
+            visibility: visible;
+            transform: scale(1);
+            pointer-events: auto;
+        }
+        .stats-hover-bubble::after {
+            content: "";
+            position: absolute;
+            left: var(--arrow-left, 50%);
+            transform: translateX(-50%);
+            border-width: 6px;
+            border-style: solid;
+        }
+        .stats-hover-bubble.placement-above {
+            transform-origin: var(--arrow-left, 50%) 100%;
+        }
+        .stats-hover-bubble.placement-above::after {
+            top: 100%;
+            border-color: #172033 transparent transparent transparent;
+        }
+        .stats-hover-bubble.placement-below {
+            transform-origin: var(--arrow-left, 50%) 0%;
+        }
+        .stats-hover-bubble.placement-below::after {
+            bottom: 100%;
+            border-color: transparent transparent #172033 transparent;
+        }
+        .stats-hover-bubble .geek-bubble-image {
+            display: block;
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            object-fit: cover;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.14);
+            margin: 0 0 7px;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+            cursor: pointer;
+            transition: transform 0.15s ease, filter 0.15s ease;
+        }
+        .stats-hover-bubble .geek-bubble-image:hover {
+            transform: scale(1.02);
+            filter: brightness(1.08);
+        }
+        .stats-hover-bubble .geek-bubble-text {
+            display: block;
+            color: #fff;
+            font-size: 13px;
+            line-height: 1.35;
+            text-align: center;
+            overflow-wrap: anywhere;
+            cursor: pointer;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        .stats-hover-bubble .geek-bubble-text:hover {
+            color: #7dd3fc;
+        }
+
         /* Fullscreen Memory Modal Overlay Container */
         #geek-memory-modal {
             position: fixed !important;
@@ -732,6 +807,29 @@
         let practiceCompletedCount = 0;
         let currentPracticeIndex = 0;
         let currentTableWords = [];
+        let pendingNextEntry = null;
+
+        const preloadedImageCache = new Map();
+
+        function preloadWordImage(word) {
+            if (!word) return;
+            const key = word.toLowerCase();
+            if (preloadedImageCache.has(key)) return;
+
+            const remoteUrl = getImageUrl(word);
+            const capWord = word.charAt(0).toUpperCase() + word.slice(1);
+            const localUrl = LOCAL_IMAGE_BASE + encodeURIComponent(capWord) + ".jpg";
+
+            const img = new Image();
+            preloadedImageCache.set(key, img);
+
+            img.onerror = () => {
+                const fallback = new Image();
+                preloadedImageCache.set(key, fallback);
+                fallback.src = localUrl;
+            };
+            img.src = remoteUrl;
+        }
 
         function formatChineseDefinitionForSpeech(def) {
             if (!def) return "";
@@ -762,6 +860,17 @@
                 }
             }
             return text;
+        }
+
+        function peekNextPracticeEntry(offset = 1) {
+            const list = (currentTableWords && currentTableWords.length > 0)
+                ? currentTableWords
+                : Object.values(DICT);
+            if (!list || list.length === 0) return null;
+            const idx = (currentPracticeIndex + offset) % list.length;
+            const nextWordObj = list[idx];
+            const word = typeof nextWordObj === "string" ? nextWordObj : (nextWordObj.w || nextWordObj);
+            return lookupEntry(word);
         }
 
         function getNextPracticeEntry() {
@@ -997,10 +1106,12 @@
                 } else if (event.key === "Enter" && answer.classList.contains("is-correct")) {
                     clearTimeout(autoCloseTimer);
                     if (practiceCompletedCount >= 10) {
+                        pendingNextEntry = null;
                         closeMemoryModal();
                         render();
                     } else {
-                        const nextEntry = getNextPracticeEntry();
+                        const nextEntry = pendingNextEntry || getNextPracticeEntry();
+                        pendingNextEntry = null;
                         if (nextEntry) {
                             openMemoryModal(nextEntry);
                             render();
@@ -1085,16 +1196,26 @@
                 practiceCompletedCount++;
 
                 if (practiceCompletedCount >= 10) {
+                    pendingNextEntry = null;
                     autoCloseTimer = setTimeout(() => {
                         closeMemoryModal();
                         render();
                     }, 2200);
                 } else {
-                    const nextEntry = getNextPracticeEntry();
-                    if (nextEntry) {
+                    pendingNextEntry = getNextPracticeEntry();
+                    if (pendingNextEntry) {
+                        // Immediately preload the next word's image during the 2.2s transition period!
+                        preloadWordImage(pendingNextEntry.w);
+                        const following = peekNextPracticeEntry(1);
+                        if (following && following.w) preloadWordImage(following.w);
+
                         autoCloseTimer = setTimeout(() => {
-                            openMemoryModal(nextEntry);
-                            render();
+                            if (pendingNextEntry) {
+                                const next = pendingNextEntry;
+                                pendingNextEntry = null;
+                                openMemoryModal(next);
+                                render();
+                            }
                         }, 2200);
                     } else {
                         autoCloseTimer = setTimeout(() => {
@@ -1129,6 +1250,7 @@
 
         function openMemoryModal(entry) {
             clearTimeout(autoCloseTimer);
+            hideHoverBubble(true);
             const refs = createMemoryModal();
             currentMemoryData = entry;
 
@@ -1157,11 +1279,18 @@
             // Auto-play English word + Chinese definition (including part of speech) on modal open
             const cleanZh = formatChineseDefinitionForSpeech(entry.d);
             speakBilingualExample(entry.w, cleanZh);
+
+            // Preload next word's image right away in the background
+            const nextPreview = peekNextPracticeEntry(1);
+            if (nextPreview && nextPreview.w) {
+                preloadWordImage(nextPreview.w);
+            }
         }
 
         function closeMemoryModal() {
             clearTimeout(autoCloseTimer);
             practiceCompletedCount = 0;
+            pendingNextEntry = null;
             if (window.speechSynthesis) {
                 try { window.speechSynthesis.cancel(); } catch (e) {}
             }
@@ -1181,6 +1310,109 @@
                 closeMemoryModal();
             }
         });
+
+        // ==========================================
+        // Hover Thumbnail Bubble Tips Implementation
+        // ==========================================
+        let hoverBubbleTimer = null;
+        let activeHoverWord = null;
+
+        function getOrCreateHoverBubble() {
+            let bubble = document.getElementById("stats-hover-bubble");
+            if (!bubble) {
+                bubble = document.createElement("div");
+                bubble.id = "stats-hover-bubble";
+                bubble.className = "stats-hover-bubble";
+                bubble.innerHTML = `
+                    <img class="geek-bubble-image" alt="" draggable="false">
+                    <span class="geek-bubble-text" title="点击打开记忆覆层"></span>
+                `;
+                document.body.appendChild(bubble);
+
+                bubble.addEventListener("mouseenter", () => {
+                    clearTimeout(hoverBubbleTimer);
+                });
+                bubble.addEventListener("mouseleave", () => {
+                    hideHoverBubble();
+                });
+
+                const launchModalFromBubble = (e) => {
+                    e.stopPropagation();
+                    if (activeHoverWord) {
+                        const word = activeHoverWord;
+                        hideHoverBubble(true);
+                        practiceCompletedCount = 0;
+                        const idx = currentTableWords.findIndex(item => (item.w || "").toLowerCase() === word.toLowerCase());
+                        currentPracticeIndex = idx >= 0 ? idx : 0;
+                        const entry = lookupEntry(word);
+                        if (entry) openMemoryModal(entry);
+                    }
+                };
+
+                bubble.querySelector(".geek-bubble-image").addEventListener("click", launchModalFromBubble);
+                bubble.querySelector(".geek-bubble-text").addEventListener("click", launchModalFromBubble);
+            }
+            return bubble;
+        }
+
+        function showHoverBubble(word, targetEl) {
+            if (!word || !targetEl || isMemoryModalOpen()) return;
+            const entry = lookupEntry(word);
+            if (!entry) return;
+
+            activeHoverWord = word;
+            const bubble = getOrCreateHoverBubble();
+            const img = bubble.querySelector(".geek-bubble-image");
+            const textSpan = bubble.querySelector(".geek-bubble-text");
+
+            img.style.opacity = "";
+            img.src = getImageUrl(word);
+            img.alt = `${word} thumbnail`;
+            setupImageFallback(img, word);
+            textSpan.textContent = `(${entry.d})`;
+
+            // Positioning
+            const rect = targetEl.getBoundingClientRect();
+            const bubbleWidth = 240;
+            const bubbleHeight = 285;
+            const gap = 10;
+
+            let left = (rect.left + rect.width / 2) - bubbleWidth / 2;
+            left = Math.max(12, Math.min(window.innerWidth - bubbleWidth - 12, left));
+
+            const arrowLeft = Math.max(16, Math.min(bubbleWidth - 16, (rect.left + rect.width / 2) - left));
+            bubble.style.setProperty("--arrow-left", `${Math.round(arrowLeft)}px`);
+
+            let top;
+            let placement = "placement-above";
+            if (rect.top - bubbleHeight - gap < 10) {
+                top = rect.bottom + gap;
+                placement = "placement-below";
+            } else {
+                top = rect.top - bubbleHeight - gap;
+                placement = "placement-above";
+            }
+
+            bubble.style.left = `${Math.round(left)}px`;
+            bubble.style.top = `${Math.round(top)}px`;
+            bubble.classList.remove("placement-above", "placement-below");
+            bubble.classList.add(placement, "is-visible");
+        }
+
+        function hideHoverBubble(immediate = false) {
+            clearTimeout(hoverBubbleTimer);
+            const bubble = document.getElementById("stats-hover-bubble");
+            if (!bubble) return;
+            if (immediate) {
+                bubble.classList.remove("is-visible");
+                activeHoverWord = null;
+            } else {
+                hoverBubbleTimer = setTimeout(() => {
+                    bubble.classList.remove("is-visible");
+                    activeHoverWord = null;
+                }, 140);
+            }
+        }
 
         function formatDate(ts) {
             if (!ts) return "-";
@@ -1297,7 +1529,7 @@
                         <td style="color: #94a3b8; font-size: 13px;">${idx + 1}</td>
                         <td>
                             <div class="word-cell">
-                                <span class="word-text" data-word="${item.w}" title="点击查看大图与记忆校验">${item.w}</span>
+                                <span class="word-text" data-word="${item.w}">${item.w}</span>
                                 <button class="btn-speak" data-word="${item.w}" title="朗读">🔊</button>
                             </div>
                         </td>
@@ -1343,6 +1575,7 @@
 
         // Event Listeners
         document.getElementById("table-body").addEventListener("click", (e) => {
+            hideHoverBubble(true);
             const speakBtn = e.target.closest(".btn-speak");
             if (speakBtn) {
                 e.stopPropagation();
@@ -1362,6 +1595,27 @@
                 }
             }
         });
+
+        document.getElementById("table-body").addEventListener("mouseover", (e) => {
+            const wordEl = e.target.closest(".word-text");
+            if (wordEl) {
+                const word = wordEl.dataset.word;
+                if (word) {
+                    clearTimeout(hoverBubbleTimer);
+                    preloadWordImage(word);
+                    showHoverBubble(word, wordEl);
+                }
+            }
+        });
+
+        document.getElementById("table-body").addEventListener("mouseout", (e) => {
+            const wordEl = e.target.closest(".word-text");
+            if (wordEl) {
+                hideHoverBubble();
+            }
+        });
+
+        window.addEventListener("scroll", () => hideHoverBubble(true), { passive: true });
 
         document.getElementById("search-input").addEventListener("input", (e) => {
             searchQuery = e.target.value.trim();

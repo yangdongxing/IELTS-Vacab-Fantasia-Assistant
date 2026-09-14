@@ -421,6 +421,18 @@
         return REMOTE_IMAGE_BASE + encodeURIComponent(capWord) + ".jpg";
     }
 
+    const preloadedImageCache = new Map();
+    function preloadWordImage(word) {
+        if (!word) return;
+        const key = word.toLowerCase();
+        if (preloadedImageCache.has(key)) return;
+
+        const remoteUrl = getImageUrl(word);
+        const img = new Image();
+        preloadedImageCache.set(key, img);
+        img.src = remoteUrl;
+    }
+
     function setupImageFallback(imgElement) {
         if (!imgElement) return;
         imgElement.onerror = function() {
@@ -1359,6 +1371,8 @@
 
             const nextItem = getNextMarkInParagraph();
             if (nextItem) {
+                // Immediately preload the next word's image during the 2.2s transition period!
+                preloadWordImage(nextItem.entry.w);
                 // Auto-advance to the next word in the same paragraph (looping) after 2.2s (2200ms)
                 autoCloseTimer = setTimeout(() => {
                     openMemoryModal(nextItem.entry, nextItem.mark);
@@ -1428,6 +1442,12 @@
         // Auto-play English word + Chinese definition (including part of speech) on modal open
         const cleanZh = formatChineseDefinitionForSpeech(entry.d);
         speakBilingualExample(entry.w, cleanZh);
+
+        // Preload next word in paragraph in the background
+        const nextPreview = getNextMarkInParagraph();
+        if (nextPreview && nextPreview.entry && nextPreview.entry.w) {
+            preloadWordImage(nextPreview.entry.w);
+        }
     }
 
     function closeMemoryModal() {
