@@ -1634,7 +1634,7 @@
                 <div class="isa-trans-header">
                     <span class="isa-trans-title">
                         <span>🌐 段落中文翻译 (双语神经对照)</span>
-                        <button class="isa-trans-btn retry" style="display:none;" title="重新获取翻译">🔄 重试</button>
+                        <button class="isa-trans-btn retry" style="display:none;" title="重新获取翻译">🔄</button>
                     </span>
                     <span class="isa-trans-tools">
                         <button class="isa-trans-btn speak" title="朗读当前英文段落">🔊 朗读英文</button>
