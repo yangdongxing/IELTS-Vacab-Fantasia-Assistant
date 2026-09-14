@@ -360,19 +360,56 @@
         } catch (e) { console.warn("[ISA] speakBilingual error:", e); }
     }
 
+    const POS_SPEECH_MAP = {
+        n: "名词",
+        v: "动词",
+        adj: "形容词",
+        adv: "副词",
+        prep: "介词",
+        pron: "代词",
+        conj: "连词",
+        det: "限定词",
+        int: "感叹词",
+        num: "数词",
+        ord: "序数词",
+        vt: "及物动词",
+        vi: "不及物动词"
+    };
+
     /**
-     * Extracts pure Chinese explanation from dictionary definition (removes POS tags like n., v., /phonetics/)
+     * Formats dictionary definition for natural Chinese TTS speech,
+     * expanding part-of-speech abbreviations (e.g. n. -> 名词, v. -> 动词, adj. -> 形容词)
+     * and removing phonetic notation while retaining meaning pauses.
      */
-    function cleanChineseDefinition(def) {
+    function formatChineseDefinitionForSpeech(def) {
         if (!def) return "";
-        const s = def
-            .replace(/\/[^/\s]+\//g, "")
-            .replace(/^(?:[a-zA-Z\./\s]+)+/g, "")
-            .replace(/\[[^\]]*\]/g, "")
-            .replace(/[；;/\\]+/g, "，")
-            .replace(/，\s*，/g, "，")
-            .replace(/^[，\s]+|[，\s]+$/g, "");
-        return s || def;
+
+        let text = def;
+        // 1. Remove phonetics between slashes like /ˈdez.ət/
+        text = text.replace(/\/[^/\s]+\//g, "");
+
+        // 2. Extract and expand leading POS like "n." or "n./v." or "adj."
+        const posMatch = text.match(/^([a-zA-Z\./]+)\s*/);
+        let spokenPos = "";
+        if (posMatch) {
+            const rawPos = posMatch[1];
+            const parts = rawPos.split(/[\/\.]+/).filter(Boolean);
+            const mapped = parts.map(p => POS_SPEECH_MAP[p.toLowerCase()] || p);
+            if (mapped.length > 0) {
+                spokenPos = mapped.join("、") + "，";
+            }
+            text = text.slice(posMatch[0].length);
+        }
+
+        // 3. Remove bracket notes like [~s], [英], [美]
+        text = text.replace(/\[[^\]]*\]/g, "");
+
+        // 4. Replace semicolons / slashes with commas for natural speech pause
+        text = text.replace(/[；;/\\]+/g, "，");
+        text = text.replace(/，\s*，/g, "，");
+        text = text.replace(/^[，\s]+|[，\s]+$/g, "");
+
+        return spokenPos + text;
     }
 
     // ==========================================
@@ -1170,7 +1207,7 @@
 
         memoryModalRefs.word.addEventListener("click", () => {
             if (currentMemoryData) {
-                const cleanZh = cleanChineseDefinition(currentMemoryData.d);
+                const cleanZh = formatChineseDefinitionForSpeech(currentMemoryData.d);
                 speakBilingualExample(currentMemoryData.w, cleanZh);
             }
             requestAnimationFrame(focusMemoryAnswer);
@@ -1314,8 +1351,8 @@
         refs.modal.classList.add("open");
         focusMemoryAnswer();
 
-        // Auto-play English word + Chinese definition on modal open
-        const cleanZh = cleanChineseDefinition(entry.d);
+        // Auto-play English word + Chinese definition (including part of speech) on modal open
+        const cleanZh = formatChineseDefinitionForSpeech(entry.d);
         speakBilingualExample(entry.w, cleanZh);
     }
 
