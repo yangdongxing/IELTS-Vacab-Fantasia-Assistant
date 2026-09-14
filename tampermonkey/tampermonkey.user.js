@@ -1359,10 +1359,10 @@
 
             const nextItem = getNextMarkInParagraph();
             if (nextItem) {
-                // Auto-advance to the next word in the same paragraph (looping) after 1100ms
+                // Auto-advance to the next word in the same paragraph (looping) after 2.2s (2200ms)
                 autoCloseTimer = setTimeout(() => {
                     openMemoryModal(nextItem.entry, nextItem.mark);
-                }, 1100);
+                }, 2200);
             }
         } else if (!target.startsWith(typed)) {
             input.classList.add("is-wrong");
