@@ -1043,27 +1043,16 @@
         return allMarks.length > 0 ? allMarks : [markEl];
     }
 
-    function getPrevMarkInParagraph() {
-        if (!currentMemoryMark) return null;
-        const marks = getParagraphMarks(currentMemoryMark);
-        const idx = marks.indexOf(currentMemoryMark);
-        if (idx > 0) {
-            const prevMark = marks[idx - 1];
-            const prevEntry = getEntryFromMark(prevMark);
-            if (prevEntry) return { mark: prevMark, entry: prevEntry };
-        }
-        return null;
-    }
-
     function getNextMarkInParagraph() {
         if (!currentMemoryMark) return null;
         const marks = getParagraphMarks(currentMemoryMark);
+        if (marks.length === 0) return null;
         const idx = marks.indexOf(currentMemoryMark);
-        if (idx >= 0 && idx < marks.length - 1) {
-            const nextMark = marks[idx + 1];
-            const nextEntry = getEntryFromMark(nextMark);
-            if (nextEntry) return { mark: nextMark, entry: nextEntry };
-        }
+        // Loop back to the first word of the paragraph when reaching the end
+        const nextIdx = (idx >= 0 && idx < marks.length - 1) ? idx + 1 : 0;
+        const nextMark = marks[nextIdx];
+        const nextEntry = getEntryFromMark(nextMark);
+        if (nextEntry) return { mark: nextMark, entry: nextEntry };
         return null;
     }
 
@@ -1095,7 +1084,7 @@
                     height: min(740px, calc(100dvh - 48px));
                     max-height: calc(100vh - 48px);
                     display: grid;
-                    grid-template-rows: auto auto minmax(80px, 1fr) auto auto auto;
+                    grid-template-rows: auto minmax(80px, 1fr) auto auto auto;
                     overflow: hidden;
                     background: #111827;
                     color: #fff;
@@ -1109,63 +1098,6 @@
                     user-select: text;
                     -webkit-user-select: text;
                     position: relative;
-                }
-                .geek-memory-header {
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    margin: 0 0 10px;
-                    padding: 0 2px;
-                    user-select: none;
-                    -webkit-user-select: none;
-                }
-                .geek-memory-progress {
-                    font-size: 13px;
-                    font-weight: 600;
-                    color: rgba(255, 255, 255, 0.65);
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                }
-                .geek-memory-progress .geek-badge {
-                    background: rgba(125, 211, 252, 0.16);
-                    color: #7dd3fc;
-                    padding: 2px 8px;
-                    border-radius: 10px;
-                    font-size: 12px;
-                    font-weight: 700;
-                }
-                .geek-memory-nav {
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                }
-                .geek-memory-btn-icon {
-                    background: rgba(255, 255, 255, 0.08);
-                    border: 1px solid rgba(255, 255, 255, 0.14);
-                    color: rgba(255, 255, 255, 0.8);
-                    border-radius: 6px;
-                    width: 28px;
-                    height: 28px;
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    font-size: 15px;
-                    line-height: 1;
-                    transition: all 0.15s ease;
-                    padding: 0;
-                    box-sizing: border-box;
-                }
-                .geek-memory-btn-icon:hover:not(:disabled) {
-                    background: rgba(255, 255, 255, 0.2);
-                    color: #fff;
-                    border-color: rgba(255, 255, 255, 0.3);
-                }
-                .geek-memory-btn-icon:disabled {
-                    opacity: 0.28;
-                    cursor: not-allowed;
-                    pointer-events: none;
                 }
                 .geek-memory-word {
                     --geek-memory-word-drop: 0px;
@@ -1289,14 +1221,6 @@
             </style>
             <div class="geek-memory-shell">
               <div class="geek-memory-card" role="dialog" aria-modal="true">
-                <div class="geek-memory-header" id="geek-memory-header">
-                  <div class="geek-memory-progress" id="geek-memory-progress"></div>
-                  <div class="geek-memory-nav">
-                    <button type="button" class="geek-memory-btn-icon" id="geek-memory-prev" title="上一个词 (←)">‹</button>
-                    <button type="button" class="geek-memory-btn-icon" id="geek-memory-next" title="下一个词 (→)">›</button>
-                    <button type="button" class="geek-memory-btn-icon" id="geek-memory-close" title="关闭 (Esc)">✕</button>
-                  </div>
-                </div>
                 <h2 class="geek-memory-word" id="geek-memory-word" title="点击朗读单词"></h2>
                 <img class="geek-memory-image" id="geek-memory-image" alt="" draggable="false">
                 <p class="geek-memory-translation" id="geek-memory-translation"></p>
@@ -1316,11 +1240,6 @@
         memoryModalRefs = {
             modal,
             card,
-            header: shadow.getElementById("geek-memory-header"),
-            progress: shadow.getElementById("geek-memory-progress"),
-            prevBtn: shadow.getElementById("geek-memory-prev"),
-            nextBtn: shadow.getElementById("geek-memory-next"),
-            closeBtn: shadow.getElementById("geek-memory-close"),
             word: shadow.getElementById("geek-memory-word"),
             image: shadow.getElementById("geek-memory-image"),
             translation: shadow.getElementById("geek-memory-translation"),
@@ -1335,23 +1254,6 @@
         });
         card.addEventListener("click", event => {
             if (event.target === card) requestAnimationFrame(focusMemoryAnswer);
-        });
-
-        memoryModalRefs.prevBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            const prevItem = getPrevMarkInParagraph();
-            if (prevItem) openMemoryModal(prevItem.entry, prevItem.mark);
-        });
-
-        memoryModalRefs.nextBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            const nextItem = getNextMarkInParagraph();
-            if (nextItem) openMemoryModal(nextItem.entry, nextItem.mark);
-        });
-
-        memoryModalRefs.closeBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            closeMemoryModal();
         });
 
         memoryModalRefs.word.addEventListener("click", () => {
@@ -1379,20 +1281,6 @@
                 const nextItem = getNextMarkInParagraph();
                 if (nextItem) {
                     openMemoryModal(nextItem.entry, nextItem.mark);
-                } else {
-                    closeMemoryModal();
-                }
-            } else if (event.key === "ArrowRight" && (!answer.value || answer.selectionStart === answer.value.length)) {
-                const nextItem = getNextMarkInParagraph();
-                if (nextItem) {
-                    event.preventDefault();
-                    openMemoryModal(nextItem.entry, nextItem.mark);
-                }
-            } else if (event.key === "ArrowLeft" && (!answer.value || answer.selectionStart === 0)) {
-                const prevItem = getPrevMarkInParagraph();
-                if (prevItem) {
-                    event.preventDefault();
-                    openMemoryModal(prevItem.entry, prevItem.mark);
                 }
             }
         });
@@ -1448,38 +1336,6 @@
         });
     }
 
-    function updateMemoryModalNav() {
-        if (!memoryModalRefs) return;
-        const { progress, prevBtn, nextBtn } = memoryModalRefs;
-        if (!progress) return;
-
-        if (!currentMemoryMark) {
-            progress.style.display = "none";
-            if (prevBtn) prevBtn.style.display = "none";
-            if (nextBtn) nextBtn.style.display = "none";
-            return;
-        }
-
-        const marks = getParagraphMarks(currentMemoryMark);
-        const total = marks.length;
-        const idx = marks.indexOf(currentMemoryMark);
-
-        progress.style.display = "flex";
-        if (prevBtn) prevBtn.style.display = "inline-flex";
-        if (nextBtn) nextBtn.style.display = "inline-flex";
-
-        if (total <= 1) {
-            progress.innerHTML = `<span class="geek-badge">本段 1 个词汇</span>`;
-            if (prevBtn) prevBtn.disabled = true;
-            if (nextBtn) nextBtn.disabled = true;
-        } else {
-            const currentNum = idx >= 0 ? idx + 1 : 1;
-            progress.innerHTML = `<span>本段词汇</span> <span class="geek-badge">${currentNum} / ${total}</span>`;
-            if (prevBtn) prevBtn.disabled = (idx <= 0);
-            if (nextBtn) nextBtn.disabled = (idx >= total - 1);
-        }
-    }
-
     function handleAnswerInput(event) {
         if (!currentMemoryData) return;
         clearTimeout(autoCloseTimer);
@@ -1503,18 +1359,10 @@
 
             const nextItem = getNextMarkInParagraph();
             if (nextItem) {
-                // Auto-advance to the next word in the same paragraph after 1100ms
+                // Auto-advance to the next word in the same paragraph (looping) after 1100ms
                 autoCloseTimer = setTimeout(() => {
                     openMemoryModal(nextItem.entry, nextItem.mark);
                 }, 1100);
-            } else {
-                // All marked words in this paragraph have been completed!
-                if (memoryModalRefs && memoryModalRefs.progress) {
-                    memoryModalRefs.progress.innerHTML = `<span class="geek-badge" style="background: rgba(52, 211, 153, 0.22); color: #34d399; font-weight: 700;">🎉 本段词汇全部完成！</span>`;
-                }
-                autoCloseTimer = setTimeout(() => {
-                    closeMemoryModal();
-                }, 1600);
             }
         } else if (!target.startsWith(typed)) {
             input.classList.add("is-wrong");
@@ -1567,8 +1415,6 @@
         refs.answer.readOnly = false;
         refs.answer.value = "";
         refs.answer.classList.remove("is-correct", "is-wrong");
-
-        updateMemoryModalNav();
 
         refs.modal.classList.add("open");
         focusMemoryAnswer();
