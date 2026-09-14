@@ -1573,22 +1573,6 @@
     function translateTextMultiSource(text) {
         const cleanText = (text || "").trim();
         if (!cleanText) return Promise.resolve("");
-
-        if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage && !window.GM_xmlhttpRequest) {
-            return new Promise((resolve) => {
-                try {
-                    chrome.runtime.sendMessage({ action: "translate", text: cleanText }, (response) => {
-                        if (!chrome.runtime.lastError && response && response.success && response.translation) {
-                            return resolve(response.translation);
-                        }
-                        runFallbackChain(cleanText).then(resolve).catch(() => resolve(""));
-                    });
-                } catch (e) {
-                    runFallbackChain(cleanText).then(resolve).catch(() => resolve(""));
-                }
-            });
-        }
-
         return runFallbackChain(cleanText);
     }
 
@@ -1604,11 +1588,18 @@
         if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
         if (!node) return null;
 
-        const block = node.closest("p, blockquote, li, pre, div.sample-box, article, section");
-        if (block) return block;
+        // 1. Direct match for standard paragraph / list / quote blocks
+        const block = node.closest("p, blockquote, li, pre, dd, dt, .sample-box");
+        if (block && !["ARTICLE", "SECTION", "MAIN", "BODY"].includes(block.tagName)) {
+            return block;
+        }
 
+        // 2. Climb up to find immediate paragraph-level block, stopping before article/section/body
         let cur = node;
         while (cur && cur !== document.body && cur.parentElement) {
+            if (["ARTICLE", "SECTION", "MAIN", "BODY"].includes(cur.parentElement.tagName)) {
+                return cur;
+            }
             try {
                 const display = window.getComputedStyle(cur).display;
                 if (display === "block" || display === "flex" || display === "grid" || cur.tagName === "DIV" || cur.tagName === "P") {
@@ -1621,15 +1612,10 @@
     }
 
     function insertParagraphTranslation(targetParagraph, textToTranslate) {
-        if (!targetParagraph || !textToTranslate) return;
+        if (!targetParagraph) return;
 
-        // Condition 1: Only translate meaningful sentences/paragraphs (>= 3 words and >= 15 chars)
-        // If the user only selected 1-2 words, just mark them without inserting a disruptive translation box
-        const clean = textToTranslate.trim();
-        const words = clean.match(/[a-zA-Z\'-]+/g) || [];
-        if (words.length < 3 || clean.length < 15) {
-            return;
-        }
+        const clean = (textToTranslate || "").trim();
+        if (!clean) return;
 
         let transBox = targetParagraph.nextElementSibling;
         if (!transBox || !transBox.classList.contains("isa-paragraph-translation")) {
@@ -1802,7 +1788,9 @@
             const textToTranslate = range.toString().trim();
             const targetParagraph = findParagraphContainer(range);
             const fallbackText = targetParagraph ? targetParagraph.innerText.trim() : "";
-            const finalText = textToTranslate || fallbackText;
+            const cleanSel = textToTranslate.replace(/\s+/g, " ").trim();
+            const selWords = cleanSel.match(/[a-zA-Z\'-]+/g) || [];
+            const finalText = (selWords.length >= 4 && cleanSel.length >= 20) ? cleanSel : (fallbackText || cleanSel);
             highlightRange(range);
             if (targetParagraph && finalText) {
                 insertParagraphTranslation(targetParagraph, finalText);
