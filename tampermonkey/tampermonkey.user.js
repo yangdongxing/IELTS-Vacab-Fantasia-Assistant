@@ -1753,7 +1753,7 @@
                 }
 
                 selectCleanBtn.classList.add("ready");
-                selectCleanBtn.textContent = "✅ 已就绪";
+                selectCleanBtn.textContent = "Opt+Esc";
                 if (selectCleanBtn._timer) clearTimeout(selectCleanBtn._timer);
                 selectCleanBtn._timer = setTimeout(() => {
                     selectCleanBtn.classList.remove("ready");
