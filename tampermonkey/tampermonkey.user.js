@@ -865,6 +865,27 @@
                 opacity: 1 !important;
                 color: #0369a1 !important;
             }
+            .isa-trans-btn.select-clean {
+                display: inline-flex !important;
+                align-items: center !important;
+                gap: 3px !important;
+                color: #0284c7 !important;
+                font-weight: 500 !important;
+                background: rgba(2, 132, 199, 0.08) !important;
+                padding: 2px 7px !important;
+                border-radius: 4px !important;
+                font-size: 11.5px !important;
+                transition: all 0.2s ease !important;
+            }
+            .isa-trans-btn.select-clean:hover {
+                background: rgba(2, 132, 199, 0.18) !important;
+                color: #0369a1 !important;
+            }
+            .isa-trans-btn.select-clean.ready {
+                background: rgba(34, 197, 94, 0.15) !important;
+                color: #15803d !important;
+                font-weight: 600 !important;
+            }
             .isa-trans-btn.close:hover {
                 color: #e11d48 !important;
             }
@@ -1629,6 +1650,7 @@
                     </span>
                     <span class="isa-trans-tools">
                         <button class="isa-trans-btn speak" title="朗读当前英文段落">🔊 朗读英文</button>
+                        <button class="isa-trans-btn select-clean" title="选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读">🎙️ 选中文本</button>
                         <button class="isa-trans-btn close" title="关闭">✕</button>
                     </span>
                 </div>
@@ -1638,7 +1660,44 @@
 
             const speakBtn = transBox.querySelector(".isa-trans-btn.speak");
             const retryBtn = transBox.querySelector(".isa-trans-btn.retry");
+            const selectCleanBtn = transBox.querySelector(".isa-trans-btn.select-clean");
             const closeBtn = transBox.querySelector(".isa-trans-btn.close");
+
+            selectCleanBtn.onclick = (e) => {
+                e.stopPropagation();
+                const rawText = transBox._currentEnglishText || textToTranslate || (targetParagraph ? targetParagraph.innerText : "");
+                const cleanEnglish = (rawText || "")
+                    .replace(/\s+/g, " ")
+                    .trim();
+
+                if (!cleanEnglish) return;
+
+                let speechProxy = document.getElementById("isa-speech-proxy");
+                if (!speechProxy) {
+                    speechProxy = document.createElement("textarea");
+                    speechProxy.id = "isa-speech-proxy";
+                    speechProxy.setAttribute("readonly", "true");
+                    speechProxy.setAttribute("tabindex", "-1");
+                    speechProxy.style.cssText = "position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; border: none; padding: 0; margin: 0; z-index: -9999;";
+                    document.body.appendChild(speechProxy);
+                }
+
+                speechProxy.value = cleanEnglish;
+                speechProxy.focus();
+                speechProxy.select();
+
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(cleanEnglish).catch(() => {});
+                }
+
+                selectCleanBtn.classList.add("ready");
+                selectCleanBtn.textContent = "✅ 已就绪";
+                if (selectCleanBtn._timer) clearTimeout(selectCleanBtn._timer);
+                selectCleanBtn._timer = setTimeout(() => {
+                    selectCleanBtn.classList.remove("ready");
+                    selectCleanBtn.textContent = "🎙️ 选中文本";
+                }, 1500);
+            };
 
             let isSpeaking = false;
 
