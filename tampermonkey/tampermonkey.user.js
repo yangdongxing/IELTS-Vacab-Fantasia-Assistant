@@ -33,7 +33,6 @@
     // Core Configuration & Constants
     // ==========================================
     const REMOTE_IMAGE_BASE = "https://ielts-vacab-fantasia-images.yangdongxing.workers.dev/";
-    const LOCAL_IMAGE_BASE = "http://127.0.0.1:8777/";
     const EDGE_PADDING = 12;
 
     // ==========================================
@@ -370,19 +369,11 @@
         return REMOTE_IMAGE_BASE + encodeURIComponent(capWord) + ".jpg";
     }
 
-    function setupImageFallback(imgElement, word) {
-        if (!imgElement || !word) return;
-        const capWord = word.charAt(0).toUpperCase() + word.slice(1);
-        const encoded = encodeURIComponent(capWord) + ".jpg";
-
+    function setupImageFallback(imgElement) {
+        if (!imgElement) return;
         imgElement.onerror = function() {
-            if (imgElement.src.startsWith(REMOTE_IMAGE_BASE)) {
-                // Try local server if offline or developing locally
-                imgElement.src = LOCAL_IMAGE_BASE + encoded;
-                imgElement.onerror = function() {
-                    imgElement.style.opacity = "0.2";
-                };
-            }
+            imgElement.classList.add("is-missing");
+            imgElement.style.opacity = "0.2";
         };
     }
 
