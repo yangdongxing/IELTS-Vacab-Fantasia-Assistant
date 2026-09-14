@@ -1605,18 +1605,46 @@
 
     function findParagraphContainer(range) {
         if (!range) return null;
-        let node = range.commonAncestorContainer;
-        if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-        if (!node) return null;
 
-        // 1. Direct match for standard paragraph / list / quote blocks
-        const block = node.closest("p, blockquote, li, pre, dd, dt, .sample-box");
-        if (block && !["ARTICLE", "SECTION", "MAIN", "BODY"].includes(block.tagName)) {
-            return block;
+        const getBlock = (rawNode) => {
+            if (!rawNode) return null;
+            let node = rawNode.nodeType === Node.TEXT_NODE ? rawNode.parentElement : rawNode;
+            if (!node) return null;
+            const b = node.closest("p, blockquote, li, pre, dd, dt, .sample-box, .paragraph");
+            if (b && !["ARTICLE", "SECTION", "MAIN", "BODY", "HTML"].includes(b.tagName)) {
+                return b;
+            }
+            return null;
+        };
+
+        // 1. Triple-click typically starts inside the paragraph node or its text node
+        let startNode = range.startContainer;
+        if (startNode.nodeType === Node.ELEMENT_NODE && startNode.childNodes.length > range.startOffset) {
+            const childAtStart = startNode.childNodes[range.startOffset];
+            const b = getBlock(childAtStart);
+            if (b) return b;
         }
+        const startBlock = getBlock(startNode);
+        if (startBlock) return startBlock;
 
-        // 2. Climb up to find immediate paragraph-level block, stopping before article/section/body
-        let cur = node;
+        // 2. Check endContainer (or the element immediately before endOffset for triple-clicks)
+        let endNode = range.endContainer;
+        if (endNode.nodeType === Node.ELEMENT_NODE && range.endOffset > 0) {
+            const childBeforeEnd = endNode.childNodes[range.endOffset - 1];
+            const b = getBlock(childBeforeEnd);
+            if (b) return b;
+        }
+        const endBlock = getBlock(endNode);
+        if (endBlock) return endBlock;
+
+        // 3. Fallback to commonAncestorContainer
+        let ancestor = range.commonAncestorContainer;
+        if (ancestor.nodeType === Node.TEXT_NODE) ancestor = ancestor.parentElement;
+        const ancestorBlock = getBlock(ancestor);
+        if (ancestorBlock) return ancestorBlock;
+
+        // 4. Climb up from startNode, stopping before article/section/body
+        let cur = startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode;
         while (cur && cur !== document.body && cur.parentElement) {
             if (["ARTICLE", "SECTION", "MAIN", "BODY"].includes(cur.parentElement.tagName)) {
                 return cur;
@@ -1629,7 +1657,8 @@
             } catch (e) {}
             cur = cur.parentElement;
         }
-        return node;
+
+        return startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode;
     }
 
     function insertParagraphTranslation(targetParagraph, textToTranslate) {
