@@ -41,24 +41,17 @@
 
 ## 📦 安装与使用
 
-### 方式 A：油猴脚本 (Tampermonkey) — 推荐
+### 油猴脚本 (Tampermonkey) — 极速安装
 
 1. 确保浏览器已安装 **[Tampermonkey](https://www.tampermonkey.net/)** 扩展。
 2. **一键安装**：直接打开 [tampermonkey.user.js](https://yangdongxing.github.io/IELTS-Vacab-Fantasia-Assistant/tampermonkey/tampermonkey.user.js)，Tampermonkey 会自动弹出安装确认弹窗，点击"安装"即可！
 3. 在任意英文网页（BBC、Medium、Wikipedia 等）划选英文即可即时体验！
 
-### 方式 B：Chrome 扩展程序 (Manifest V3)
-
-1. 打开 Chrome 浏览器，访问 `chrome://extensions/`。
-2. 开启右上角的 **开发者模式 (Developer Mode)**。
-3. 点击 **加载已解压的扩展程序 (Load unpacked)**。
-4. 选择本项目的 `chrome-extension/` 文件夹即可完成安装。
-
 ---
 
 ## 🚀 启动本地辅助服务 (可选)
 
-本地服务提供 **图片静态加速 (3,600+ 配图 0 延迟秒开)**、**打点数据持久化** 与 **Google 翻译代理加速**：
+本地服务提供 **图片静态加速 (3,600+ 配图 0 延迟秒开)**、**打点数据持久化** 与 **翻译代理加速**：
 
 ```bash
 python3 server.py
@@ -92,11 +85,9 @@ IELTS-Vacab-Fantasia-Assistant/
 ├── README.md                       # 本文件
 ├── server.py                       # 本地辅助服务（可选）
 ├── start.sh                        # 一键启动服务
-├── chrome-extension/               # Chrome 扩展程序
-│   ├── manifest.json               # Manifest V3 配置
-│   ├── content_script.js           # 内容脚本
-│   └── data/
-│       └── dictionary.json         # 词库数据（3631 词）
+├── data/
+│   ├── dictionary.json             # 词库数据（3631 词）
+│   └── stats.json                  # 打点数据持久化
 └── tampermonkey/                   # 油猴脚本
     ├── tampermonkey.user.js        # Tampermonkey 用户脚本
     ├── test.html                   # 功能测试页

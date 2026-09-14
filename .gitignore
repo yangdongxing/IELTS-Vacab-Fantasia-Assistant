@@ -6,4 +6,4 @@ __pycache__/
 *.pyc
 
 # Runtime data (stats are user-specific)
-chrome-extension/data/stats.json
+data/stats.json

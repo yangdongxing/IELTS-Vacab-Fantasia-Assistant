@@ -13,6 +13,8 @@
 // @connect      127.0.0.1
 // @connect      localhost
 // @connect      translate.googleapis.com
+// @connect      api.mymemory.translated.net
+// @connect      *
 // @run-at       document-end
 // ==/UserScript==
 
@@ -843,6 +845,24 @@
                 color: #0369a1 !important;
                 font-weight: 600 !important;
             }
+            .isa-trans-btn.retry {
+                display: inline-flex !important;
+                align-items: center !important;
+                gap: 3px !important;
+                color: #0284c7 !important;
+                font-weight: 500 !important;
+                background: rgba(2, 132, 199, 0.08) !important;
+                padding: 2px 7px !important;
+                border-radius: 4px !important;
+                font-size: 11.5px !important;
+                opacity: 0.85 !important;
+                transition: all 0.15s ease !important;
+            }
+            .isa-trans-btn.retry:hover {
+                background: rgba(2, 132, 199, 0.18) !important;
+                opacity: 1 !important;
+                color: #0369a1 !important;
+            }
             .isa-trans-btn.close:hover {
                 color: #e11d48 !important;
             }
@@ -853,6 +873,10 @@
             .isa-trans-loading {
                 color: #64748b !important;
                 font-style: italic !important;
+            }
+            .isa-trans-error {
+                color: #94a3b8 !important;
+                font-size: 12.5px !important;
             }
 
             /* Fullscreen Memory Modal Overlay Container */
@@ -1436,46 +1460,137 @@
     }
 
     // ==========================================
-    // Google Neural Translation & Paragraph Insertion
+    // Multi-Source Neural Translation & Paragraph Insertion
     // ==========================================
-    function translateTextGoogle(text) {
+    function translateViaGoogle(cleanText) {
         return new Promise((resolve, reject) => {
-            const cleanText = (text || "").trim();
-            if (!cleanText) return resolve("");
-
             const googleUrl = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=" + encodeURIComponent(cleanText);
 
             if (typeof GM_xmlhttpRequest === "function") {
                 GM_xmlhttpRequest({
                     method: "GET",
                     url: googleUrl,
+                    headers: {
+                        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    },
+                    timeout: 6000,
                     onload: function(res) {
                         try {
                             const data = JSON.parse(res.responseText);
                             const translated = (data[0] || []).map(item => item[0]).join("");
-                            resolve(translated);
+                            if (translated && translated.trim()) {
+                                resolve(translated.trim());
+                            } else {
+                                reject(new Error("Empty Google translation"));
+                            }
                         } catch (e) {
                             reject(e);
                         }
                     },
-                    onerror: reject
+                    ontimeout: () => reject(new Error("Google timeout")),
+                    onerror: (err) => reject(err)
                 });
             } else {
                 fetch(googleUrl)
                     .then(res => res.json())
                     .then(data => {
                         const translated = (data[0] || []).map(item => item[0]).join("");
-                        resolve(translated);
+                        if (translated && translated.trim()) {
+                            resolve(translated.trim());
+                        } else {
+                            reject(new Error("Empty Google translation"));
+                        }
                     })
-                    .catch(() => {
-                        // Fallback to local server translation proxy if CORS fails
-                        fetch("http://127.0.0.1:8777/api/translate?q=" + encodeURIComponent(cleanText))
-                            .then(r => r.json())
-                            .then(d => resolve(d.translation || ""))
-                            .catch(reject);
-                    });
+                    .catch(reject);
             }
         });
+    }
+
+    function translateViaMyMemory(cleanText) {
+        return new Promise((resolve, reject) => {
+            const mmUrl = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(cleanText) + "&langpair=en|zh-CN";
+
+            if (typeof GM_xmlhttpRequest === "function") {
+                GM_xmlhttpRequest({
+                    method: "GET",
+                    url: mmUrl,
+                    headers: {
+                        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    },
+                    timeout: 6000,
+                    onload: function(res) {
+                        try {
+                            const data = JSON.parse(res.responseText);
+                            const text = data.responseData && data.responseData.translatedText;
+                            if (text && text.trim() && !text.includes("MYMEMORY WARNING")) {
+                                resolve(text.trim());
+                            } else {
+                                reject(new Error("Empty MyMemory translation"));
+                            }
+                        } catch (e) {
+                            reject(e);
+                        }
+                    },
+                    ontimeout: () => reject(new Error("MyMemory timeout")),
+                    onerror: (err) => reject(err)
+                });
+            } else {
+                fetch(mmUrl)
+                    .then(res => res.json())
+                    .then(data => {
+                        const text = data.responseData && data.responseData.translatedText;
+                        if (text && text.trim() && !text.includes("MYMEMORY WARNING")) {
+                            resolve(text.trim());
+                        } else {
+                            reject(new Error("Empty MyMemory translation"));
+                        }
+                    })
+                    .catch(reject);
+            }
+        });
+    }
+
+    function translateViaLocalProxy(cleanText) {
+        return new Promise((resolve, reject) => {
+            fetch("http://127.0.0.1:8777/api/translate?q=" + encodeURIComponent(cleanText))
+                .then(r => r.json())
+                .then(d => {
+                    if (d.translation && d.translation.trim()) {
+                        resolve(d.translation.trim());
+                    } else {
+                        reject(new Error("Local proxy empty"));
+                    }
+                })
+                .catch(reject);
+        });
+    }
+
+    function translateTextMultiSource(text) {
+        const cleanText = (text || "").trim();
+        if (!cleanText) return Promise.resolve("");
+
+        if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage && !window.GM_xmlhttpRequest) {
+            return new Promise((resolve) => {
+                try {
+                    chrome.runtime.sendMessage({ action: "translate", text: cleanText }, (response) => {
+                        if (!chrome.runtime.lastError && response && response.success && response.translation) {
+                            return resolve(response.translation);
+                        }
+                        runFallbackChain(cleanText).then(resolve).catch(() => resolve(""));
+                    });
+                } catch (e) {
+                    runFallbackChain(cleanText).then(resolve).catch(() => resolve(""));
+                }
+            });
+        }
+
+        return runFallbackChain(cleanText);
+    }
+
+    function runFallbackChain(cleanText) {
+        return translateViaGoogle(cleanText)
+            .catch(() => translateViaMyMemory(cleanText))
+            .catch(() => translateViaLocalProxy(cleanText));
     }
 
     function findParagraphContainer(range) {
@@ -1483,11 +1598,33 @@
         let node = range.commonAncestorContainer;
         if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
         if (!node) return null;
-        return node.closest("p, blockquote, li, pre, div.sample-box, article, section") || node;
+
+        const block = node.closest("p, blockquote, li, pre, div.sample-box, article, section");
+        if (block) return block;
+
+        let cur = node;
+        while (cur && cur !== document.body && cur.parentElement) {
+            try {
+                const display = window.getComputedStyle(cur).display;
+                if (display === "block" || display === "flex" || display === "grid" || cur.tagName === "DIV" || cur.tagName === "P") {
+                    return cur;
+                }
+            } catch (e) {}
+            cur = cur.parentElement;
+        }
+        return node;
     }
 
     function insertParagraphTranslation(targetParagraph, textToTranslate) {
         if (!targetParagraph || !textToTranslate) return;
+
+        // Condition 1: Only translate meaningful sentences/paragraphs (>= 3 words and >= 15 chars)
+        // If the user only selected 1-2 words, just mark them without inserting a disruptive translation box
+        const clean = textToTranslate.trim();
+        const words = clean.match(/[a-zA-Z\'-]+/g) || [];
+        if (words.length < 3 || clean.length < 15) {
+            return;
+        }
 
         let transBox = targetParagraph.nextElementSibling;
         if (!transBox || !transBox.classList.contains("isa-paragraph-translation")) {
@@ -1495,7 +1632,10 @@
             transBox.className = "isa-paragraph-translation";
             transBox.innerHTML = `
                 <div class="isa-trans-header">
-                    <span class="isa-trans-title">🌐 段落中文翻译 (Google 神经翻译)</span>
+                    <span class="isa-trans-title">
+                        <span>🌐 段落中文翻译 (双语神经对照)</span>
+                        <button class="isa-trans-btn retry" style="display:none;" title="重新获取翻译">🔄 重试</button>
+                    </span>
                     <span class="isa-trans-tools">
                         <button class="isa-trans-btn speak" title="朗读当前英文段落">🔊 朗读英文</button>
                         <button class="isa-trans-btn close" title="关闭">✕</button>
@@ -1505,8 +1645,8 @@
             `;
             targetParagraph.insertAdjacentElement("afterend", transBox);
 
-            const contentEl = transBox.querySelector(".isa-trans-content");
             const speakBtn = transBox.querySelector(".isa-trans-btn.speak");
+            const retryBtn = transBox.querySelector(".isa-trans-btn.retry");
             const closeBtn = transBox.querySelector(".isa-trans-btn.close");
 
             let isSpeaking = false;
@@ -1563,33 +1703,57 @@
                 }
             };
 
+            retryBtn.onclick = (e) => {
+                e.stopPropagation();
+                fetchTranslation();
+            };
+
             closeBtn.onclick = (e) => {
                 e.stopPropagation();
                 stopSpeaking();
                 transBox.remove();
             };
-        } else {
-            const contentEl = transBox.querySelector(".isa-trans-content");
-            contentEl.className = "isa-trans-content isa-trans-loading";
-            contentEl.textContent = "正在更新翻译中...";
         }
 
         transBox._currentEnglishText = textToTranslate;
         const contentEl = transBox.querySelector(".isa-trans-content");
+        const retryBtn = transBox.querySelector(".isa-trans-btn.retry");
 
-        translateTextGoogle(textToTranslate)
-            .then(zhText => {
-                if (!zhText) {
-                    transBox.remove();
-                    return;
-                }
-                contentEl.classList.remove("isa-trans-loading");
-                contentEl.textContent = zhText;
-            })
-            .catch(() => {
-                contentEl.classList.remove("isa-trans-loading");
-                contentEl.textContent = "（翻译请求超时或网络受限，请稍后重试）";
-            });
+        function handleFail(msg) {
+            if (contentEl) {
+                contentEl.className = "isa-trans-content isa-trans-error";
+                contentEl.textContent = msg;
+            }
+            if (retryBtn) {
+                retryBtn.style.display = "inline-flex";
+            }
+        }
+
+        function fetchTranslation() {
+            if (contentEl) {
+                contentEl.className = "isa-trans-content isa-trans-loading";
+                contentEl.textContent = "正在翻译段落中...";
+            }
+            if (retryBtn) retryBtn.style.display = "none";
+
+            translateTextMultiSource(textToTranslate)
+                .then(zhText => {
+                    if (!zhText || !zhText.trim()) {
+                        handleFail("（暂未获取到译文，可能因网络波动）");
+                        return;
+                    }
+                    if (contentEl) {
+                        contentEl.className = "isa-trans-content";
+                        contentEl.textContent = zhText;
+                    }
+                    if (retryBtn) retryBtn.style.display = "none";
+                })
+                .catch(() => {
+                    handleFail("（翻译请求连接超时）");
+                });
+        }
+
+        fetchTranslation();
     }
 
     // ==========================================
@@ -1623,16 +1787,24 @@
         btn.style.left = `${posX}px`;
         btn.style.top = `${posY}px`;
 
+        btn.onmousedown = (e) => {
+            e.preventDefault(); // Prevents selection from collapsing when clicking button
+        };
+
         btn.onclick = (e) => {
             e.stopPropagation();
             removeTriggerBtn();
+            const textToTranslate = range.toString().trim();
             const targetParagraph = findParagraphContainer(range);
-            const textToTranslate = range.toString().trim() || (targetParagraph ? targetParagraph.innerText.trim() : "");
+            const fallbackText = targetParagraph ? targetParagraph.innerText.trim() : "";
+            const finalText = textToTranslate || fallbackText;
             highlightRange(range);
-            if (targetParagraph && textToTranslate) {
-                insertParagraphTranslation(targetParagraph, textToTranslate);
+            if (targetParagraph && finalText) {
+                insertParagraphTranslation(targetParagraph, finalText);
             }
-            window.getSelection().removeAllRanges();
+            try {
+                window.getSelection().removeAllRanges();
+            } catch (err) {}
         };
 
         document.body.appendChild(btn);

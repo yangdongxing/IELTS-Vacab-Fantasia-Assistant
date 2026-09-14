@@ -29,7 +29,7 @@ for _candidate in _IMAGE_CANDIDATES:
         IMAGES_DIR = _candidate
         break
 
-STATS_FILE = PROJECT_DIR / "chrome-extension" / "data" / "stats.json"
+STATS_FILE = PROJECT_DIR / "data" / "stats.json"
 PORT = 8777
 
 IMAGE_INDEX = {}
@@ -79,23 +79,43 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
                 return
             try:
                 g_url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=" + urllib.parse.quote(query_text)
-                req = urllib.request.Request(g_url, headers={'User-Agent': 'Mozilla/5.0'})
+                req = urllib.request.Request(g_url, headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'})
                 with urllib.request.urlopen(req, timeout=6) as resp:
                     data = json.loads(resp.read().decode('utf-8'))
                     translated = "".join(item[0] for item in (data[0] or []) if item and item[0])
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json; charset=utf-8")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"translation": translated}, ensure_ascii=False).encode('utf-8'))
-                    return
+                    if translated and translated.strip():
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"translation": translated.strip()}, ensure_ascii=False).encode('utf-8'))
+                        return
+            except Exception:
+                pass
+
+            # Fallback to MyMemory
+            try:
+                mm_url = "https://api.mymemory.translated.net/get?q=" + urllib.parse.quote(query_text) + "&langpair=en|zh-CN"
+                req2 = urllib.request.Request(mm_url, headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'})
+                with urllib.request.urlopen(req2, timeout=6) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    text = data.get('responseData', {}).get('translatedText', '')
+                    if text and text.strip() and "MYMEMORY WARNING" not in text:
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"translation": text.strip()}, ensure_ascii=False).encode('utf-8'))
+                        return
             except Exception as e:
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(json.dumps({"error": str(e), "translation": ""}).encode('utf-8'))
-                return
+                pass
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "Translation failed", "translation": ""}).encode('utf-8'))
+            return
 
         # Stats HTML page
         if req_name in ("stats", "stats.html"):
