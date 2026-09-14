@@ -587,15 +587,15 @@
         style.textContent = `
             strong.geek-vocab-mark, em.geek-vocab-mark {
                 position: relative !important;
-                display: inline-block !important;
-                vertical-align: baseline !important;
+                display: inline !important;
                 color: inherit !important;
                 font-weight: 600 !important;
                 text-decoration: none !important;
                 background-color: rgba(244, 63, 94, 0.18) !important;
                 border-radius: 3px !important;
-                padding: 0 3.5px !important;
-                margin: 0 1px !important;
+                padding: 1px 3.5px !important;
+                box-decoration-break: clone !important;
+                -webkit-box-decoration-break: clone !important;
                 cursor: pointer !important;
                 transition: background-color 0.15s ease !important;
             }
@@ -623,6 +623,8 @@
                 opacity: 0 !important;
                 visibility: hidden !important;
                 pointer-events: none !important;
+                user-select: none !important;
+                -webkit-user-select: none !important;
                 transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease !important;
                 z-index: 99999 !important;
             }
@@ -1399,11 +1401,13 @@
 
                 const bubble = document.createElement("span");
                 bubble.className = "translation-bubble geek-has-word-image";
+                bubble.setAttribute("aria-hidden", "true");
 
                 const image = document.createElement("img");
                 image.className = "geek-bubble-image";
                 image.src = getImageUrl(m.entry.w);
-                image.alt = `${m.entry.w} image`;
+                image.alt = "";
+                image.setAttribute("aria-hidden", "true");
                 image.loading = "lazy";
                 image.draggable = false;
                 setupImageFallback(image, m.entry.w);
@@ -1416,6 +1420,7 @@
 
                 const textSpan = document.createElement("span");
                 textSpan.className = "geek-bubble-text";
+                textSpan.setAttribute("aria-hidden", "true");
                 const origWord = m.entry.w;
                 const isInflected = m.token.toLowerCase() !== origWord.toLowerCase();
                 textSpan.textContent = isInflected ? `${origWord} (${m.entry.d})` : `(${m.entry.d})`;
