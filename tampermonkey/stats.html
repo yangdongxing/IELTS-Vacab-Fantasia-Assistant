@@ -420,7 +420,7 @@
             <table>
                 <thead>
                     <tr>
-                        <th style="width: 60px;">#</th>
+                        <th data-sort="length" style="width: 60px;" title="点击按单词字母长度排序"># ⇅</th>
                         <th data-sort="w">单词 (Word) ⇅</th>
                         <th>释义 (Definition)</th>
                         <th data-sort="marks" style="text-align: center;">标记次数 ⇅</th>
@@ -1491,6 +1491,15 @@
 
             // Sort
             filtered.sort((a, b) => {
+                if (currentSort.field === "length") {
+                    const lenA = (a.w || "").length;
+                    const lenB = (b.w || "").length;
+                    if (lenA !== lenB) {
+                        return currentSort.order === "asc" ? lenA - lenB : lenB - lenA;
+                    }
+                    return (a.w || "").localeCompare(b.w || "");
+                }
+
                 let valA = a[currentSort.field];
                 let valB = b[currentSort.field];
 
@@ -1638,7 +1647,7 @@
                     currentSort.order = currentSort.order === "asc" ? "desc" : "asc";
                 } else {
                     currentSort.field = field;
-                    currentSort.order = "desc";
+                    currentSort.order = (field === "length" || field === "w") ? "asc" : "desc";
                 }
                 render();
             });
