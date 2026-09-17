@@ -1795,8 +1795,8 @@
             if (btn !== exceptBtn) {
                 if (btn._timer) clearTimeout(btn._timer);
                 btn.classList.remove("ready");
-                btn.textContent = "🎙️ 选中文本";
-                btn.title = "选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击阶梯累加: 1-3-6-10-15）";
+                btn.textContent = "🎧 Siri朗读";
+                btn.title = "就绪纯净段落，按 Option+Esc 唤起高保真 Siri 朗读（连续点击阶梯累加: 1-3-6-10-15）";
                 btn._stepIndex = -1;
             }
         });
@@ -1820,7 +1820,7 @@
                     </span>
                     <span class="isa-trans-tools">
                         <button class="isa-trans-btn speak" title="朗读当前英文段落">🔊 朗读英文</button>
-                        <button class="isa-trans-btn select-clean" title="选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击阶梯累加: 1-3-6-10-15）">🎙️ 选中文本</button>
+                        <button class="isa-trans-btn select-clean" title="就绪纯净段落，按 Option+Esc 唤起高保真 Siri 朗读（连续点击阶梯累加: 1-3-6-10-15）">🎧 Siri朗读</button>
                         <button class="isa-trans-btn close" title="关闭">✕</button>
                     </span>
                 </div>
@@ -1886,8 +1886,8 @@
                 if (selectCleanBtn._timer) clearTimeout(selectCleanBtn._timer);
                 selectCleanBtn._timer = setTimeout(() => {
                     selectCleanBtn.classList.remove("ready");
-                    selectCleanBtn.textContent = "🎙️ 选中文本";
-                    selectCleanBtn.title = "选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击阶梯累加: 1-3-6-10-15）";
+                    selectCleanBtn.textContent = "🎧 Siri朗读";
+                    selectCleanBtn.title = "就绪纯净段落，按 Option+Esc 唤起高保真 Siri 朗读（连续点击阶梯累加: 1-3-6-10-15）";
                     selectCleanBtn._stepIndex = -1;
                     if (lastActiveSelectCleanBtn === selectCleanBtn) {
                         lastActiveSelectCleanBtn = null;
