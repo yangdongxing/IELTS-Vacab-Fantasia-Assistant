@@ -533,6 +533,9 @@
 
             let totalMarks = 0, totalModal = 0, totalSuccess = 0;
             Object.values(merged.words).forEach(w => {
+                if (w.modalOpens > 0 && (w.inputSuccess || 0) > w.modalOpens) {
+                    w.inputSuccess = w.modalOpens;
+                }
                 totalMarks += (w.marks || 0);
                 totalModal += (w.modalOpens || 0);
                 totalSuccess += (w.inputSuccess || 0);
@@ -1042,6 +1045,12 @@
                                 changed = true;
                             }
                         });
+                        Object.values(local.words).forEach(w => {
+                            if (w.modalOpens > 0 && (w.inputSuccess || 0) > w.modalOpens) {
+                                w.inputSuccess = w.modalOpens;
+                                changed = true;
+                            }
+                        });
                         if (changed || Object.keys(serverStats.words).length !== Object.keys(local.words).length) {
                             saveStats(local);
                             render();
@@ -1159,11 +1168,16 @@
                 const word = typeof item === "string" ? item.trim() : (item.w || "").trim();
                 if (!word) return;
                 const key = word.toLowerCase();
+                const modalOpens = typeof item === "object" ? (Number(item.modalOpens) || 0) : 0;
+                let inputSuccess = typeof item === "object" ? (Number(item.inputSuccess) || 0) : 0;
+                if (modalOpens > 0 && inputSuccess > modalOpens) {
+                    inputSuccess = modalOpens;
+                }
                 normalized[key] = {
                     w: word,
                     marks: typeof item === "object" ? (Number(item.marks) || 0) : 1,
-                    modalOpens: typeof item === "object" ? (Number(item.modalOpens) || 0) : 0,
-                    inputSuccess: typeof item === "object" ? (Number(item.inputSuccess) || 0) : 0,
+                    modalOpens: modalOpens,
+                    inputSuccess: inputSuccess,
                     lastUpdated: typeof item === "object" && item.lastUpdated ? Number(item.lastUpdated) : Date.now()
                 };
             });
@@ -1211,6 +1225,9 @@
                             existing.marks = Math.max(existing.marks || 0, incoming.marks || 0);
                             existing.modalOpens = Math.max(existing.modalOpens || 0, incoming.modalOpens || 0);
                             existing.inputSuccess = Math.max(existing.inputSuccess || 0, incoming.inputSuccess || 0);
+                            if (existing.modalOpens > 0 && existing.inputSuccess > existing.modalOpens) {
+                                existing.inputSuccess = existing.modalOpens;
+                            }
                             existing.lastUpdated = Math.max(existing.lastUpdated || 0, incoming.lastUpdated || 0);
                             mergedCount++;
                         }

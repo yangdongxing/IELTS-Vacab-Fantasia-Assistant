@@ -465,7 +465,23 @@
                 if (raw) stats = JSON.parse(raw);
             } catch (e) {}
         }
-        return stats || { summary: { marks: 0, modalOpens: 0, inputSuccess: 0 }, words: {} };
+        if (!stats) return { summary: { marks: 0, modalOpens: 0, inputSuccess: 0 }, words: {} };
+
+        // Data sanitization & self-healing: sanitize any legacy corrupted records where inputSuccess > modalOpens
+        if (stats.words && typeof stats.words === "object") {
+            let totalMarks = 0, totalModal = 0, totalSuccess = 0;
+            Object.values(stats.words).forEach(entry => {
+                if (!entry || typeof entry !== "object") return;
+                if (entry.modalOpens > 0 && (entry.inputSuccess || 0) > entry.modalOpens) {
+                    entry.inputSuccess = entry.modalOpens;
+                }
+                totalMarks += (entry.marks || 0);
+                totalModal += (entry.modalOpens || 0);
+                totalSuccess += (entry.inputSuccess || 0);
+            });
+            stats.summary = { marks: totalMarks, modalOpens: totalModal, inputSuccess: totalSuccess };
+        }
+        return stats;
     }
 
     function saveStats(stats) {
@@ -518,8 +534,8 @@
 
     function trackWordEvent(word, eventType) {
         if (!word) return;
-        // Suppress telemetry tracking completely on stats dashboard page
-        if (isStatsPage()) return;
+        // On stats dashboard page, only suppress word marking (selection highlights), allow modal review & practice tracking
+        if (isStatsPage() && eventType === "mark") return;
 
         const stats = loadStats();
         const key = word.toLowerCase().trim();
@@ -543,14 +559,28 @@
 
         if (eventType === "mark") {
             entry.marks = (entry.marks || 0) + 1;
-            stats.summary.marks = (stats.summary.marks || 0) + 1;
         } else if (eventType === "modal_open") {
             entry.modalOpens = (entry.modalOpens || 0) + 1;
-            stats.summary.modalOpens = (stats.summary.modalOpens || 0) + 1;
         } else if (eventType === "input_success") {
             entry.inputSuccess = (entry.inputSuccess || 0) + 1;
-            stats.summary.inputSuccess = (stats.summary.inputSuccess || 0) + 1;
         }
+
+        // Logical invariant: inputSuccess should never exceed modalOpens (if modalOpens > 0)
+        if (entry.modalOpens > 0 && entry.inputSuccess > entry.modalOpens) {
+            entry.inputSuccess = entry.modalOpens;
+        }
+
+        // Accurately recalculate totals from all word entries
+        let totalMarks = 0, totalModal = 0, totalSuccess = 0;
+        Object.values(stats.words).forEach(w => {
+            if (w.modalOpens > 0 && (w.inputSuccess || 0) > w.modalOpens) {
+                w.inputSuccess = w.modalOpens;
+            }
+            totalMarks += (w.marks || 0);
+            totalModal += (w.modalOpens || 0);
+            totalSuccess += (w.inputSuccess || 0);
+        });
+        stats.summary = { marks: totalMarks, modalOpens: totalModal, inputSuccess: totalSuccess };
 
         saveStats(stats);
     }
@@ -1597,6 +1627,8 @@
         });
     }
 
+    let hasTrackedCurrentSuccess = false;
+
     function handleAnswerInput(event) {
         if (!currentMemoryData) return;
         clearTimeout(autoCloseTimer);
@@ -1614,7 +1646,10 @@
 
         if (targets.includes(typed)) {
             input.classList.add("is-correct");
-            trackWordEvent(currentMemoryData.w, "input_success");
+            if (!hasTrackedCurrentSuccess) {
+                hasTrackedCurrentSuccess = true;
+                trackWordEvent(currentMemoryData.w, "input_success");
+            }
             playCorrectMemoryAnimation();
             const textToSpeak = (typed === focusTarget && currentMemoryData.sp && currentMemoryData.sp.focus) 
                 ? currentMemoryData.sp.focus 
@@ -1672,6 +1707,7 @@
         clearTimeout(autoCloseTimer);
         const refs = createMemoryModal();
         currentMemoryData = entry;
+        hasTrackedCurrentSuccess = false;
         if (markEl) {
             currentMemoryMark = markEl;
         }
@@ -1787,6 +1823,7 @@
         currentMemoryData = null;
         currentMemoryMark = null;
         statsPracticeCount = 0;
+        hasTrackedCurrentSuccess = false;
         resetMemoryAnimation();
         window.dispatchEvent(new CustomEvent("ielts_memory_modal_closed"));
     }

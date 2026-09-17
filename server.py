@@ -32,6 +32,33 @@ for _candidate in _IMAGE_CANDIDATES:
 STATS_FILE = PROJECT_DIR / "data" / "stats.json"
 PORT = 8777
 
+
+def sanitize_stats_data(data):
+    if not isinstance(data, dict):
+        return data
+    words = data.get("words", {})
+    if isinstance(words, dict):
+        total_marks = 0
+        total_opens = 0
+        total_success = 0
+        for w_data in words.values():
+            if isinstance(w_data, dict):
+                opens = int(w_data.get("modalOpens", 0) or 0)
+                succ = int(w_data.get("inputSuccess", 0) or 0)
+                marks = int(w_data.get("marks", 0) or 0)
+                if opens > 0 and succ > opens:
+                    w_data["inputSuccess"] = opens
+                    succ = opens
+                total_marks += marks
+                total_opens += opens
+                total_success += succ
+        data["summary"] = {
+            "marks": total_marks,
+            "modalOpens": total_opens,
+            "inputSuccess": total_success
+        }
+    return data
+
 IMAGE_INDEX = {}
 if IMAGES_DIR and IMAGES_DIR.exists():
     for fn in os.listdir(IMAGES_DIR):
@@ -60,7 +87,12 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             if STATS_FILE.exists():
-                self.wfile.write(STATS_FILE.read_bytes())
+                try:
+                    raw_data = json.loads(STATS_FILE.read_text(encoding='utf-8'))
+                    clean_data = sanitize_stats_data(raw_data)
+                    self.wfile.write(json.dumps(clean_data, ensure_ascii=False, indent=2).encode('utf-8'))
+                except Exception:
+                    self.wfile.write(STATS_FILE.read_bytes())
             else:
                 self.wfile.write(b'{"summary":{"marks":0,"modalOpens":0,"inputSuccess":0},"words":{}}')
             return
@@ -162,6 +194,7 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(length)
             try:
                 data = json.loads(body.decode('utf-8'))
+                data = sanitize_stats_data(data)
                 STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
                 STATS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
                 self.send_response(200)
