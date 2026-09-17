@@ -1425,13 +1425,17 @@
 
         if (targets.includes(typed)) {
             input.classList.add("is-correct");
-            input.readOnly = true;
             trackWordEvent(currentMemoryData.w, "input_success");
             playCorrectMemoryAnimation();
             const textToSpeak = (typed === focusTarget && currentMemoryData.sp && currentMemoryData.sp.focus) 
                 ? currentMemoryData.sp.focus 
                 : currentMemoryData.w;
             speakText(textToSpeak);
+
+            const hasLongerCandidate = targets.some(target => target.length > typed.length && target.startsWith(typed));
+            if (!hasLongerCandidate) {
+                input.readOnly = true;
+            }
 
             const nextItem = getNextMarkInParagraph();
             if (nextItem) {
@@ -1489,10 +1493,10 @@
         refs.example.hidden = !(spoken.en && spoken.zh);
         if (refs.focusBadge) {
             if (spoken.focus_zh) {
-                refs.focusBadge.textContent = `🎯 核心搭配：${spoken.focus}（${spoken.focus_zh}）`;
+                refs.focusBadge.textContent = `${spoken.focus}（${spoken.focus_zh}）`;
                 refs.focusBadge.hidden = false;
             } else if (spoken.focus) {
-                refs.focusBadge.textContent = `🎯 核心搭配：${spoken.focus}`;
+                refs.focusBadge.textContent = spoken.focus;
                 refs.focusBadge.hidden = false;
             } else {
                 refs.focusBadge.hidden = true;
