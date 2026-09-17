@@ -1171,8 +1171,14 @@
         return null;
     }
 
+    const STATS_MAX_PRACTICE_WORDS = 10;
+    let statsPracticeCount = 0;
+
     function getNextItemToPractice() {
         if (isStatsPage()) {
+            if (statsPracticeCount >= STATS_MAX_PRACTICE_WORDS) {
+                return null;
+            }
             const wordEls = Array.from(document.querySelectorAll("#table-body .word-text"));
             if (wordEls.length === 0) return null;
             let idx = -1;
@@ -1184,7 +1190,8 @@
                 const curWord = currentMemoryData.w.toLowerCase().trim();
                 idx = wordEls.findIndex(el => (el.dataset?.word || el.textContent || "").toLowerCase().trim() === curWord);
             }
-            const nextIdx = (idx >= 0 && idx < wordEls.length - 1) ? idx + 1 : 0;
+            const nextIdx = (idx >= 0 && idx < wordEls.length - 1) ? idx + 1 : (wordEls.length >= STATS_MAX_PRACTICE_WORDS ? 0 : -1);
+            if (nextIdx === -1) return null;
             const nextEl = wordEls[nextIdx];
             const nextWord = (nextEl.dataset?.word || nextEl.textContent || "").trim();
             const nextEntry = lookupWord(nextWord);
@@ -1248,6 +1255,33 @@
                     user-select: text;
                     -webkit-user-select: text;
                     position: relative;
+                }
+                .geek-memory-progress {
+                    position: absolute;
+                    top: 14px;
+                    right: 16px;
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: #94a3b8;
+                    background: rgba(255, 255, 255, 0.08);
+                    border: 1px solid rgba(255, 255, 255, 0.14);
+                    padding: 3px 10px;
+                    border-radius: 999px;
+                    letter-spacing: 0.5px;
+                    pointer-events: none;
+                    z-index: 10;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    transition: color 0.2s, border-color 0.2s, background-color 0.2s;
+                }
+                .geek-memory-progress[hidden] {
+                    display: none;
+                }
+                .geek-memory-progress.is-completed {
+                    color: #34d399;
+                    border-color: rgba(52, 211, 153, 0.4);
+                    background: rgba(52, 211, 153, 0.12);
                 }
                 .geek-memory-header {
                     --geek-memory-header-drop: 0px;
@@ -1432,6 +1466,7 @@
             </style>
             <div class="geek-memory-shell">
               <div class="geek-memory-card" role="dialog" aria-modal="true">
+                <div class="geek-memory-progress" id="geek-memory-progress" hidden></div>
                 <div class="geek-memory-header" id="geek-memory-header">
                   <h2 class="geek-memory-word" id="geek-memory-word" title="点击朗读单词"></h2>
                   <div class="geek-memory-translation" id="geek-memory-translation"></div>
@@ -1454,6 +1489,7 @@
         memoryModalRefs = {
             modal,
             card,
+            progress: shadow.getElementById("geek-memory-progress"),
             header: shadow.getElementById("geek-memory-header"),
             word: shadow.getElementById("geek-memory-word"),
             image: shadow.getElementById("geek-memory-image"),
@@ -1599,6 +1635,11 @@
                     openMemoryModal(nextItem.entry, nextItem.mark);
                 }, 2200);
             } else {
+                if (isStatsPage() && memoryModalRefs && memoryModalRefs.progress) {
+                    const total = Math.min(STATS_MAX_PRACTICE_WORDS, Math.max(1, document.querySelectorAll("#table-body .word-text").length));
+                    memoryModalRefs.progress.textContent = `${total} / ${total} 🎉 本组完成`;
+                    memoryModalRefs.progress.classList.add("is-completed");
+                }
                 autoCloseTimer = setTimeout(() => {
                     closeMemoryModal();
                 }, 2200);
@@ -1638,6 +1679,28 @@
 
         closeAllOpenedBubbles(null);
         resetMemoryAnimation();
+
+        const wasOpen = isMemoryModalOpen();
+        if (isStatsPage()) {
+            if (!wasOpen) {
+                statsPracticeCount = 1;
+            } else {
+                statsPracticeCount++;
+            }
+        } else {
+            statsPracticeCount = 0;
+        }
+
+        if (refs.progress) {
+            if (isStatsPage()) {
+                const total = Math.min(STATS_MAX_PRACTICE_WORDS, Math.max(1, document.querySelectorAll("#table-body .word-text").length));
+                refs.progress.textContent = `${statsPracticeCount} / ${total}`;
+                refs.progress.classList.toggle("is-completed", statsPracticeCount >= total);
+                refs.progress.hidden = false;
+            } else {
+                refs.progress.hidden = true;
+            }
+        }
 
         refs.word.textContent = entry.w;
         refs.image.style.opacity = "";  // reset from any previous load failure
@@ -1680,7 +1743,13 @@
 
         refs.answer.readOnly = false;
         refs.answer.value = "";
-        refs.answer.placeholder = spoken.focus ? "输入单词或核心搭配进行记忆校验" : "请输入上方单词进行记忆校验";
+        const basePlaceholder = spoken.focus ? "输入单词或核心搭配进行记忆校验" : "请输入上方单词进行记忆校验";
+        if (isStatsPage()) {
+            const total = Math.min(STATS_MAX_PRACTICE_WORDS, Math.max(1, document.querySelectorAll("#table-body .word-text").length));
+            refs.answer.placeholder = `[${statsPracticeCount}/${total}] ${basePlaceholder}`;
+        } else {
+            refs.answer.placeholder = basePlaceholder;
+        }
         refs.answer.classList.remove("is-correct", "is-wrong");
 
         refs.modal.classList.add("open");
@@ -1717,6 +1786,7 @@
         }
         currentMemoryData = null;
         currentMemoryMark = null;
+        statsPracticeCount = 0;
         resetMemoryAnimation();
         window.dispatchEvent(new CustomEvent("ielts_memory_modal_closed"));
     }
