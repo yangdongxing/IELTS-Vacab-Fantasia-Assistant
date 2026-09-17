@@ -1414,20 +1414,24 @@
 
         const input = event.target;
         const typed = answerKey(input.value);
-        // Strictly verify the exact word in #geek-memory-word
-        const target = answerKey(currentMemoryData.w);
+        const wordTarget = answerKey(currentMemoryData.w);
+        const focusTarget = currentMemoryData.sp && currentMemoryData.sp.focus ? answerKey(currentMemoryData.sp.focus) : "";
+        const targets = [wordTarget, focusTarget].filter(Boolean);
 
         input.classList.remove("is-correct", "is-wrong");
         resetMemoryAnimation();
 
         if (!typed) return;
 
-        if (typed === target) {
+        if (targets.includes(typed)) {
             input.classList.add("is-correct");
             input.readOnly = true;
             trackWordEvent(currentMemoryData.w, "input_success");
             playCorrectMemoryAnimation();
-            speakText(currentMemoryData.w);
+            const textToSpeak = (typed === focusTarget && currentMemoryData.sp && currentMemoryData.sp.focus) 
+                ? currentMemoryData.sp.focus 
+                : currentMemoryData.w;
+            speakText(textToSpeak);
 
             const nextItem = getNextMarkInParagraph();
             if (nextItem) {
@@ -1438,7 +1442,7 @@
                     openMemoryModal(nextItem.entry, nextItem.mark);
                 }, 2200);
             }
-        } else if (!target.startsWith(typed)) {
+        } else if (!targets.some(target => target.startsWith(typed))) {
             input.classList.add("is-wrong");
         }
     }
@@ -1499,6 +1503,7 @@
 
         refs.answer.readOnly = false;
         refs.answer.value = "";
+        refs.answer.placeholder = spoken.focus ? "输入单词或核心搭配进行记忆校验" : "请输入上方单词进行记忆校验";
         refs.answer.classList.remove("is-correct", "is-wrong");
 
         refs.modal.classList.add("open");
