@@ -501,8 +501,26 @@
         }
     }
 
+    function isStatsPage() {
+        try {
+            if (document.querySelector('meta[name="ielts-vocab-stats-page"]')) return true;
+            if (document.querySelector('meta[name="ielts-vocab-disable-plugin"]')) return true;
+            if (document.getElementById("stats-page-container")) return true;
+            const loc = window.location;
+            if (!loc) return false;
+            const path = (loc.pathname || "").toLowerCase();
+            const href = (loc.href || "").toLowerCase();
+            return path.endsWith("stats.html") || href.includes("stats.html");
+        } catch (e) {
+            return false;
+        }
+    }
+
     function trackWordEvent(word, eventType) {
         if (!word) return;
+        // Suppress telemetry tracking completely on stats dashboard page
+        if (isStatsPage()) return;
+
         const stats = loadStats();
         const key = word.toLowerCase().trim();
         const now = Date.now();
@@ -569,14 +587,34 @@
         }
     };
 
+    rootWin.ieltsVocabAssistant = {
+        openMemoryModal: (wordOrEntry, markEl = null) => {
+            const entry = typeof wordOrEntry === "string" ? lookupWord(wordOrEntry) : wordOrEntry;
+            if (entry) {
+                openMemoryModal(entry, markEl);
+            }
+        },
+        closeMemoryModal: () => {
+            closeMemoryModal();
+        },
+        isMemoryModalOpen: () => {
+            return isMemoryModalOpen();
+        },
+        lookupWord: (word) => {
+            return lookupWord(word);
+        },
+        version: "1.7.0",
+        active: true
+    };
+
     window.addEventListener("ielts_stats_save_request", (e) => {
         if (e.detail && typeof e.detail === "object") {
             saveStats(e.detail);
         }
     });
 
-    // If opening a page with explicit meta tag, smart-merge storage and exit to avoid UI duplication
-    if (document.querySelector('meta[name="ielts-vocab-disable-plugin"]')) {
+    // If on stats dashboard page, smart-merge telemetry storage without terminating plugin execution
+    if (isStatsPage()) {
         try {
             const gmData = loadStats();
             let localData = null;
@@ -620,8 +658,7 @@
             }
             window.dispatchEvent(new CustomEvent("ielts_stats_loaded_from_tampermonkey", { detail: merged }));
         } catch (e) {}
-        console.log("[ISA] ielts-vocab-disable-plugin meta detected — extension UI and listeners disabled.");
-        return;
+        console.log("[ISA] Stats page detected: Storage synced, telemetry tracking suppressed, modal execution enabled.");
     }
 
     // ==========================================
@@ -1108,6 +1145,29 @@
         return null;
     }
 
+    function getNextItemToPractice() {
+        if (isStatsPage()) {
+            const wordEls = Array.from(document.querySelectorAll("#table-body .word-text"));
+            if (wordEls.length === 0) return null;
+            let idx = -1;
+            if (currentMemoryMark) {
+                const markWord = (currentMemoryMark.dataset?.word || currentMemoryMark.textContent || "").toLowerCase().trim();
+                idx = wordEls.findIndex(el => (el.dataset?.word || el.textContent || "").toLowerCase().trim() === markWord);
+            }
+            if (idx === -1 && currentMemoryData) {
+                const curWord = currentMemoryData.w.toLowerCase().trim();
+                idx = wordEls.findIndex(el => (el.dataset?.word || el.textContent || "").toLowerCase().trim() === curWord);
+            }
+            const nextIdx = (idx >= 0 && idx < wordEls.length - 1) ? idx + 1 : 0;
+            const nextEl = wordEls[nextIdx];
+            const nextWord = (nextEl.dataset?.word || nextEl.textContent || "").trim();
+            const nextEntry = lookupWord(nextWord);
+            if (nextEntry) return { mark: nextEl, entry: nextEntry };
+            return null;
+        }
+        return getNextMarkInParagraph();
+    }
+
     function createMemoryModal() {
         if (memoryModalRefs) return memoryModalRefs;
 
@@ -1350,9 +1410,11 @@
                 closeMemoryModal();
             } else if (event.key === "Enter" && answer.classList.contains("is-correct")) {
                 clearTimeout(autoCloseTimer);
-                const nextItem = getNextMarkInParagraph();
+                const nextItem = getNextItemToPractice();
                 if (nextItem) {
                     openMemoryModal(nextItem.entry, nextItem.mark);
+                } else {
+                    closeMemoryModal();
                 }
             }
         });
@@ -1437,13 +1499,17 @@
                 input.readOnly = true;
             }
 
-            const nextItem = getNextMarkInParagraph();
+            const nextItem = getNextItemToPractice();
             if (nextItem) {
                 // Immediately preload the next word's image during the 2.2s transition period!
                 preloadWordImage(nextItem.entry.w);
-                // Auto-advance to the next word in the same paragraph (looping) after 2.2s (2200ms)
+                // Auto-advance to the next word in the same paragraph / table after 2.2s (2200ms)
                 autoCloseTimer = setTimeout(() => {
                     openMemoryModal(nextItem.entry, nextItem.mark);
+                }, 2200);
+            } else {
+                autoCloseTimer = setTimeout(() => {
+                    closeMemoryModal();
                 }, 2200);
             }
         } else if (!targets.some(target => target.startsWith(typed))) {
@@ -1523,8 +1589,8 @@
         const cleanZh = formatChineseDefinitionForSpeech(entry.d);
         speakBilingualExample(entry.w, cleanZh);
 
-        // Preload next word in paragraph in the background
-        const nextPreview = getNextMarkInParagraph();
+        // Preload next word in background
+        const nextPreview = getNextItemToPractice();
         if (nextPreview && nextPreview.entry && nextPreview.entry.w) {
             preloadWordImage(nextPreview.entry.w);
         }
@@ -2291,6 +2357,10 @@
     // Event Listeners
     // ==========================================
     document.addEventListener("mouseup", (event) => {
+        if (isStatsPage()) {
+            removeTriggerBtn();
+            return;
+        }
         if (currentTriggerBtn && currentTriggerBtn.contains(event.target)) {
             return;
         }
