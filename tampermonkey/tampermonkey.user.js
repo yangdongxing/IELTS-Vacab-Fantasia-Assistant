@@ -1854,12 +1854,12 @@
                 selectCleanBtn._stepIndex = ((selectCleanBtn._stepIndex ?? -1) + 1) % REPEAT_STEPS.length;
                 const count = REPEAT_STEPS[selectCleanBtn._stepIndex];
 
-                // Ensure natural pause between repeated units
+                // Ensure natural pause between repeated units (doubled pause time)
                 let singleUnit = cleanEnglish;
                 if (!/[.!?…"”’']$/.test(singleUnit)) {
                     singleUnit += ".";
                 }
-                const repeatedText = Array(count).fill(singleUnit).join("\n\n\n");
+                const repeatedText = Array(count).fill(singleUnit).join("\n\n\n\n\n\n");
 
                 let speechProxy = document.getElementById("isa-speech-proxy");
                 if (!speechProxy) {
