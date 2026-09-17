@@ -1787,6 +1787,20 @@
         return startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode;
     }
 
+    let lastActiveSelectCleanBtn = null;
+
+    function resetAllSelectCleanBtns(exceptBtn = null) {
+        document.querySelectorAll(".isa-trans-btn.select-clean").forEach(btn => {
+            if (btn !== exceptBtn) {
+                if (btn._timer) clearTimeout(btn._timer);
+                btn.classList.remove("ready");
+                btn.textContent = "🎙️ 选中文本";
+                btn.title = "选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击可累加播放次数）";
+                btn._repeatCount = 0;
+            }
+        });
+    }
+
     function insertParagraphTranslation(targetParagraph, textToTranslate) {
         if (!targetParagraph) return;
 
@@ -1820,6 +1834,14 @@
 
             selectCleanBtn.onclick = (e) => {
                 e.stopPropagation();
+
+                // If switching from another paragraph, reset previous buttons and zero out count
+                if (lastActiveSelectCleanBtn !== selectCleanBtn) {
+                    resetAllSelectCleanBtns(selectCleanBtn);
+                    selectCleanBtn._repeatCount = 0;
+                    lastActiveSelectCleanBtn = selectCleanBtn;
+                }
+
                 const rawText = transBox._currentEnglishText || textToTranslate || (targetParagraph ? targetParagraph.innerText : "");
                 const cleanEnglish = (rawText || "")
                     .replace(/\s+/g, " ")
@@ -1827,7 +1849,7 @@
 
                 if (!cleanEnglish) return;
 
-                // Cumulative playback count: each click increases repeat count by 1
+                // Cumulative playback count: each click on current paragraph increases repeat count by 1
                 selectCleanBtn._repeatCount = (selectCleanBtn._repeatCount || 0) + 1;
                 const count = selectCleanBtn._repeatCount;
 
@@ -1866,6 +1888,9 @@
                     selectCleanBtn.textContent = "🎙️ 选中文本";
                     selectCleanBtn.title = "选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击可累加播放次数）";
                     selectCleanBtn._repeatCount = 0;
+                    if (lastActiveSelectCleanBtn === selectCleanBtn) {
+                        lastActiveSelectCleanBtn = null;
+                    }
                 }, 3000);
             };
 
@@ -1931,6 +1956,9 @@
             closeBtn.onclick = (e) => {
                 e.stopPropagation();
                 stopSpeaking();
+                if (lastActiveSelectCleanBtn === selectCleanBtn) {
+                    lastActiveSelectCleanBtn = null;
+                }
                 transBox.remove();
             };
         }
