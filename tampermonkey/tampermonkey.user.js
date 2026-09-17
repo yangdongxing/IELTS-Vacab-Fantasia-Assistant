@@ -1257,16 +1257,38 @@
                 }
                 .geek-memory-translation {
                     margin: 0 0 12px;
-                    color: rgba(255,255,255,0.86);
-                    font-size: 18px;
-                    line-height: 1.5;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-wrap: wrap;
+                    gap: 6px;
+                    line-height: 1.4;
                     text-align: center;
                     overflow-wrap: anywhere;
                 }
+                .geek-memory-pos {
+                    display: inline-block;
+                    font-size: 13px;
+                    font-weight: 700;
+                    font-style: italic;
+                    color: #7dd3fc;
+                    background: rgba(125, 211, 252, 0.12);
+                    border: 1px solid rgba(125, 211, 252, 0.28);
+                    padding: 1px 7px;
+                    border-radius: 4px;
+                    letter-spacing: 0.2px;
+                    line-height: 1.35;
+                }
+                .geek-memory-def {
+                    color: rgba(241, 245, 249, 0.92);
+                    font-size: 16px;
+                    font-weight: 500;
+                    letter-spacing: 0.3px;
+                }
                 .geek-memory-example {
                     margin: 12px 0 0;
-                    padding: 12px 0 0;
-                    border-top: 1px solid rgba(255,255,255,0.12);
+                    padding: 0;
+                    border-top: none;
                     text-align: center;
                 }
                 .geek-memory-example[hidden] {
@@ -1553,9 +1575,23 @@
         refs.image.src = getImageUrl(entry.w);
         refs.image.alt = `${entry.w} image`;
         setupImageFallback(refs.image, entry.w);
-        refs.translation.textContent = `(${entry.d})`;
-
-        const spoken = entry.sp || {};
+        refs.translation.textContent = "";
+        const rawDef = (entry.d || "").replace(/^\((.*)\)$/, "$1").trim();
+        const posMatch = rawDef.match(/^([a-z./]+)\s*(.*)$/i);
+        if (posMatch && posMatch[1]) {
+            const posSpan = document.createElement("span");
+            posSpan.className = "geek-memory-pos";
+            posSpan.textContent = posMatch[1];
+            const defSpan = document.createElement("span");
+            defSpan.className = "geek-memory-def";
+            defSpan.textContent = posMatch[2];
+            refs.translation.append(posSpan, defSpan);
+        } else {
+            const defSpan = document.createElement("span");
+            defSpan.className = "geek-memory-def";
+            defSpan.textContent = rawDef;
+            refs.translation.append(defSpan);
+        }
         refs.example.hidden = !(spoken.en && spoken.zh);
         if (refs.focusBadge) {
             if (spoken.focus_zh) {
