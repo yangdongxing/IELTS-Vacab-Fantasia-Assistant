@@ -589,7 +589,11 @@
 
     rootWin.ieltsVocabAssistant = {
         openMemoryModal: (wordOrEntry, markEl = null) => {
-            const entry = typeof wordOrEntry === "string" ? lookupWord(wordOrEntry) : wordOrEntry;
+            let entry = typeof wordOrEntry === "string" ? lookupWord(wordOrEntry) : wordOrEntry;
+            if (!entry && typeof wordOrEntry === "string") {
+                const clean = wordOrEntry.toLowerCase().trim();
+                entry = DICTIONARY[clean] || { w: wordOrEntry, d: "" };
+            }
             if (entry) {
                 openMemoryModal(entry, markEl);
             }
@@ -603,9 +607,31 @@
         lookupWord: (word) => {
             return lookupWord(word);
         },
-        version: "1.7.0",
+        version: "1.7.1",
         active: true
     };
+    if (typeof window !== "undefined" && window !== rootWin) {
+        try { window.ieltsVocabAssistant = rootWin.ieltsVocabAssistant; } catch (e) {}
+    }
+
+    window.addEventListener("ielts_open_memory_modal", (e) => {
+        const detail = e.detail || {};
+        const word = detail.word;
+        if (word) {
+            let entry = typeof word === "string" ? lookupWord(word) : word;
+            if (!entry && typeof word === "string") {
+                const clean = word.toLowerCase().trim();
+                entry = DICTIONARY[clean] || { w: word, d: "" };
+            }
+            if (entry) {
+                openMemoryModal(entry, detail.markEl || null);
+            }
+        }
+    });
+
+    window.addEventListener("ielts_close_memory_modal", () => {
+        closeMemoryModal();
+    });
 
     window.addEventListener("ielts_stats_save_request", (e) => {
         if (e.detail && typeof e.detail === "object") {
@@ -1173,6 +1199,18 @@
 
         const modal = document.createElement("div");
         modal.id = "geek-memory-modal";
+        modal.style.position = "fixed";
+        modal.style.inset = "0";
+        modal.style.alignItems = "center";
+        modal.style.justifyContent = "center";
+        modal.style.padding = "24px";
+        modal.style.background = "rgba(2, 6, 23, 0.76)";
+        modal.style.backdropFilter = "blur(4px)";
+        modal.style.webkitBackdropFilter = "blur(4px)";
+        modal.style.zIndex = "100001";
+        modal.style.boxSizing = "border-box";
+        modal.style.pointerEvents = "auto";
+        modal.style.display = "none";
         const shadow = modal.attachShadow({ mode: "open" });
         shadow.innerHTML = `
             <style>
@@ -1646,6 +1684,8 @@
         refs.answer.classList.remove("is-correct", "is-wrong");
 
         refs.modal.classList.add("open");
+        refs.modal.style.display = "flex";
+        window.dispatchEvent(new CustomEvent("ielts_memory_modal_opened", { detail: { word: entry.w } }));
         focusMemoryAnswer();
 
         if (currentMemoryMark && typeof currentMemoryMark.scrollIntoView === "function") {
@@ -1672,11 +1712,13 @@
         }
         if (memoryModalRefs && memoryModalRefs.modal) {
             memoryModalRefs.modal.classList.remove("open");
+            memoryModalRefs.modal.style.display = "none";
             if (memoryModalRefs.answer) memoryModalRefs.answer.blur();
         }
         currentMemoryData = null;
         currentMemoryMark = null;
         resetMemoryAnimation();
+        window.dispatchEvent(new CustomEvent("ielts_memory_modal_closed"));
     }
 
     // ==========================================

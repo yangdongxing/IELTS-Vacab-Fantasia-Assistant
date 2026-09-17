@@ -346,6 +346,25 @@
             color: #7dd3fc;
         }
 
+        /* Fullscreen Memory Modal Overlay Container */
+        #geek-memory-modal {
+            position: fixed !important;
+            inset: 0 !important;
+            display: none !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 24px !important;
+            background: rgba(2, 6, 23, 0.76) !important;
+            backdrop-filter: blur(4px) !important;
+            -webkit-backdrop-filter: blur(4px) !important;
+            z-index: 100001 !important;
+            box-sizing: border-box !important;
+            pointer-events: auto !important;
+        }
+        #geek-memory-modal.open {
+            display: flex !important;
+        }
+
     </style>
 </head>
 <body>
@@ -725,7 +744,40 @@
         }
 
         function isMemoryModalOpen() {
+            const modal = document.getElementById("geek-memory-modal");
+            if (modal && modal.classList.contains("open") && modal.style.display !== "none") {
+                return true;
+            }
             return !!(window.ieltsVocabAssistant && typeof window.ieltsVocabAssistant.isMemoryModalOpen === "function" && window.ieltsVocabAssistant.isMemoryModalOpen());
+        }
+
+        function openMemoryModalForWord(word, targetEl) {
+            if (!word) return;
+            hideHoverBubble(true);
+
+            // 1. Direct helper call if available
+            if (window.ieltsVocabAssistant && typeof window.ieltsVocabAssistant.openMemoryModal === "function") {
+                try {
+                    window.ieltsVocabAssistant.openMemoryModal(word, targetEl);
+                    return;
+                } catch (err) {
+                    console.warn("[Stats] Direct openMemoryModal error:", err);
+                }
+            }
+
+            // 2. CustomEvent bridge for sandbox isolation
+            window.dispatchEvent(new CustomEvent("ielts_open_memory_modal", {
+                detail: { word, markEl: targetEl }
+            }));
+
+            // 3. Fallback alert if Tampermonkey is missing
+            setTimeout(() => {
+                const modal = document.getElementById("geek-memory-modal");
+                const isOpen = modal && (modal.classList.contains("open") || modal.style.display === "flex");
+                if (!isOpen && !window.ieltsVocabAssistant) {
+                    alert("请在浏览器中启用油猴脚本（Tampermonkey），以使用记忆覆层功能。");
+                }
+            }, 300);
         }
 
         // ==========================================
@@ -749,7 +801,11 @@
                 bubble.addEventListener("mouseenter", () => {
                     clearTimeout(hoverBubbleTimer);
                 });
-                bubble.addEventListener("mouseleave", () => {
+                bubble.addEventListener("mouseleave", (e) => {
+                    const related = e.relatedTarget;
+                    if (related && related.closest && related.closest(".word-text")) {
+                        return;
+                    }
                     hideHoverBubble();
                 });
 
@@ -757,12 +813,7 @@
                     e.stopPropagation();
                     if (activeHoverWord) {
                         const word = activeHoverWord;
-                        hideHoverBubble(true);
-                        if (window.ieltsVocabAssistant && typeof window.ieltsVocabAssistant.openMemoryModal === "function") {
-                            window.ieltsVocabAssistant.openMemoryModal(word);
-                        } else {
-                            alert("请在浏览器中启用油猴脚本（Tampermonkey），以使用记忆覆层功能。");
-                        }
+                        openMemoryModalForWord(word);
                     }
                 };
 
@@ -783,9 +834,9 @@
             const textSpan = bubble.querySelector(".geek-bubble-text");
 
             img.style.opacity = "";
+            setupImageFallback(img, word);
             img.src = getImageUrl(word);
             img.alt = `${word} thumbnail`;
-            setupImageFallback(img, word);
             textSpan.textContent = `(${entry.d})`;
 
             // Positioning
@@ -827,7 +878,7 @@
                 hoverBubbleTimer = setTimeout(() => {
                     bubble.classList.remove("is-visible");
                     activeHoverWord = null;
-                }, 140);
+                }, 200);
             }
         }
 
@@ -843,6 +894,7 @@
         }
 
         function render() {
+            hideHoverBubble(true);
             const stats = loadStats();
             const allStatsWords = Object.values(stats.words || {});
             
@@ -1013,17 +1065,13 @@
             if (wordEl) {
                 const word = wordEl.dataset.word || wordEl.querySelector(".word-text")?.dataset.word;
                 if (word) {
-                    if (window.ieltsVocabAssistant && typeof window.ieltsVocabAssistant.openMemoryModal === "function") {
-                        window.ieltsVocabAssistant.openMemoryModal(word, wordEl);
-                    } else {
-                        alert("请在浏览器中启用油猴脚本（Tampermonkey），以使用记忆覆层功能。");
-                    }
+                    openMemoryModalForWord(word, wordEl);
                 }
             }
         });
 
         document.getElementById("table-body").addEventListener("mouseover", (e) => {
-            const wordEl = e.target.closest(".word-text");
+            const wordEl = e.target.closest(".word-text") || (e.target.classList && e.target.classList.contains("word-cell") ? e.target.querySelector(".word-text") : null);
             if (wordEl) {
                 const word = wordEl.dataset.word;
                 if (word) {
@@ -1037,11 +1085,16 @@
         document.getElementById("table-body").addEventListener("mouseout", (e) => {
             const wordEl = e.target.closest(".word-text");
             if (wordEl) {
+                const related = e.relatedTarget;
+                if (related && (wordEl.contains(related) || document.getElementById("stats-hover-bubble")?.contains(related))) {
+                    return;
+                }
                 hideHoverBubble();
             }
         });
 
         window.addEventListener("scroll", () => hideHoverBubble(true), { passive: true });
+        window.addEventListener("ielts_memory_modal_opened", () => hideHoverBubble(true));
 
         document.getElementById("search-input").addEventListener("input", (e) => {
             searchQuery = e.target.value.trim();
@@ -1233,13 +1286,6 @@
             }
         });
 
-        // Defensive cleanup: remove any external plugin floating buttons or styles if injected
-        setInterval(() => {
-            const floatBtn = document.getElementById("geek-vocab-float-btn");
-            if (floatBtn) floatBtn.remove();
-            const pluginStyles = document.getElementById("isa-exact-project-styles");
-            if (pluginStyles) pluginStyles.remove();
-        }, 500);
     </script>
 </body>
 </html>
