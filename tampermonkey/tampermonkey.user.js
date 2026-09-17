@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.6.0
+// @version      1.6.1
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译与智谱AI长难句核心语块逐项拆解。
 // @author       极客助手
 // @match        *://*/*
@@ -951,24 +951,11 @@
 
             /* Sentence Chunk Breakdown (AI) */
             .isa-breakdown-container {
-                margin-top: 10px !important;
+                margin-top: 12px !important;
                 padding-top: 10px !important;
                 border-top: 1px dashed #cbd5e1 !important;
-                font-size: 13px !important;
-            }
-            .isa-breakdown-header {
-                display: flex !important;
-                justify-content: space-between !important;
-                align-items: center !important;
-                margin-bottom: 6px !important;
-                font-size: 12px !important;
-                font-weight: 600 !important;
-                color: #0369a1 !important;
-            }
-            .isa-breakdown-title {
-                display: inline-flex !important;
-                align-items: center !important;
-                gap: 5px !important;
+                font-size: 13.5px !important;
+                line-height: 1.65 !important;
             }
             .isa-breakdown-loading {
                 color: #64748b !important;
@@ -981,42 +968,24 @@
                 font-size: 12px !important;
             }
             .isa-breakdown-list {
-                list-style: none !important;
-                padding: 0 !important;
-                margin: 0 0 8px 0 !important;
+                list-style: disc !important;
+                padding-left: 20px !important;
+                margin: 0 !important;
                 display: flex !important;
                 flex-direction: column !important;
-                gap: 6px !important;
+                gap: 8px !important;
             }
             .isa-breakdown-item {
-                background: rgba(255, 255, 255, 0.75) !important;
-                border-left: 2.5px solid #38bdf8 !important;
-                border-radius: 4px !important;
-                padding: 5px 9px !important;
-                line-height: 1.5 !important;
+                color: #334155 !important;
+                font-size: 13.5px !important;
+                line-height: 1.65 !important;
             }
-            .isa-breakdown-en {
-                font-weight: 600 !important;
+            .isa-breakdown-term {
+                font-weight: 700 !important;
                 color: #0f172a !important;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
             }
-            .isa-breakdown-zh {
-                color: #475569 !important;
-                font-size: 12.5px !important;
-                margin-top: 2px !important;
-            }
-            .isa-breakdown-summary {
-                background: #f8fafc !important;
-                border: 1px solid #e2e8f0 !important;
-                border-radius: 5px !important;
-                padding: 6px 10px !important;
-                margin-top: 6px !important;
-                color: #1e293b !important;
-                line-height: 1.5 !important;
-                font-size: 12.5px !important;
-            }
-            .isa-breakdown-summary strong {
-                color: #d97706 !important;
+            .isa-breakdown-desc {
+                color: #334155 !important;
             }
 
             /* Fullscreen Memory Modal Overlay Container */
@@ -1902,14 +1871,14 @@
                 messages: [
                     {
                         role: "system",
-                        content: "你是雅思长难句语块拆解专家。请将用户提供的英文句子进行核心语义语块拆解，并以严格的 JSON 格式输出，不要输出代码块标记或闲聊。格式要求：\n{\n  \"chunks\": [\n    {\"en\": \"核心英文语块\", \"zh\": \"中文含义与语法原理解析（如：主谓宾/从句/状语等）\"}\n  ],\n  \"summary\": \"一句话白话提炼（通俗易懂）\"\n}"
+                        content: "你是英语长难句与学术阅读语块拆解专家。请将输入的英文句子拆解为3-5个关键语义语块，并以中文通俗讲解其背景与原理解析。请直接以JSON数组输出：\n[\n  {\"en\": \"英文核心语块\", \"zh\": \"中文词义\", \"exp\": \"指的是.../说明.../原理解释\"}\n]\n不要包含```json标记或多余闲聊，只输出JSON数组。"
                     },
                     {
                         role: "user",
                         content: cleanText
                     }
                 ],
-                max_tokens: 600,
+                max_tokens: 500,
                 temperature: 0.1
             };
 
@@ -1926,7 +1895,8 @@
                     // Strip optional markdown fencing if model outputs ```json ... ```
                     const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
                     const parsed = JSON.parse(cleanJsonStr);
-                    resolve(parsed);
+                    const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
+                    resolve(items);
                 } catch (e) {
                     reject(e);
                 }
@@ -1992,11 +1962,6 @@
                 </div>
                 <div class="isa-trans-content isa-trans-loading">正在翻译段落中...</div>
                 <div class="isa-breakdown-container">
-                    <div class="isa-breakdown-header">
-                        <span class="isa-breakdown-title">
-                            <span>🧩 核心语块逐项拆解与逻辑解析 (AI)</span>
-                        </span>
-                    </div>
                     <div class="isa-breakdown-content isa-breakdown-loading">正在智能解析长难句核心语块...</div>
                 </div>
             `;
@@ -2193,27 +2158,25 @@
                     }
 
                     let html = "";
-                    if (Array.isArray(res.chunks) && res.chunks.length > 0) {
+                    if (Array.isArray(res) && res.length > 0) {
                         html += `<ul class="isa-breakdown-list">`;
-                        res.chunks.forEach(c => {
-                            const enPart = (c.en || "").trim();
+                        res.forEach(c => {
+                            const enPart = (c.en || c.chunk || "").trim();
                             const zhPart = (c.zh || "").trim();
+                            const expPart = (c.exp || c.explanation || "").trim();
+                            
+                            let termHtml = enPart;
+                            if (zhPart) {
+                                termHtml += `（${zhPart}）`;
+                            }
+
                             html += `
                                 <li class="isa-breakdown-item">
-                                    <div class="isa-breakdown-en">• "${enPart}"</div>
-                                    <div class="isa-breakdown-zh">▸ ${zhPart}</div>
+                                    <strong class="isa-breakdown-term">${termHtml}：</strong><span class="isa-breakdown-desc">${expPart}</span>
                                 </li>
                             `;
                         });
                         html += `</ul>`;
-                    }
-
-                    if (res.summary && res.summary.trim()) {
-                        html += `
-                            <div class="isa-breakdown-summary">
-                                <strong>💡 简单来说：</strong>${res.summary.trim()}
-                            </div>
-                        `;
                     }
 
                     breakdownContentEl.className = "isa-breakdown-content";
