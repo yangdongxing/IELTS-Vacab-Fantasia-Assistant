@@ -1788,6 +1788,7 @@
     }
 
     let lastActiveSelectCleanBtn = null;
+    const REPEAT_STEPS = [1, 3, 6, 10, 15];
 
     function resetAllSelectCleanBtns(exceptBtn = null) {
         document.querySelectorAll(".isa-trans-btn.select-clean").forEach(btn => {
@@ -1795,8 +1796,8 @@
                 if (btn._timer) clearTimeout(btn._timer);
                 btn.classList.remove("ready");
                 btn.textContent = "🎙️ 选中文本";
-                btn.title = "选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击可累加播放次数）";
-                btn._repeatCount = 0;
+                btn.title = "选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击阶梯累加: 1-3-6-10-15）";
+                btn._stepIndex = -1;
             }
         });
     }
@@ -1819,7 +1820,7 @@
                     </span>
                     <span class="isa-trans-tools">
                         <button class="isa-trans-btn speak" title="朗读当前英文段落">🔊 朗读英文</button>
-                        <button class="isa-trans-btn select-clean" title="选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击可累加播放次数）">🎙️ 选中文本</button>
+                        <button class="isa-trans-btn select-clean" title="选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击阶梯累加: 1-3-6-10-15）">🎙️ 选中文本</button>
                         <button class="isa-trans-btn close" title="关闭">✕</button>
                     </span>
                 </div>
@@ -1838,7 +1839,7 @@
                 // If switching from another paragraph, reset previous buttons and zero out count
                 if (lastActiveSelectCleanBtn !== selectCleanBtn) {
                     resetAllSelectCleanBtns(selectCleanBtn);
-                    selectCleanBtn._repeatCount = 0;
+                    selectCleanBtn._stepIndex = -1;
                     lastActiveSelectCleanBtn = selectCleanBtn;
                 }
 
@@ -1849,9 +1850,9 @@
 
                 if (!cleanEnglish) return;
 
-                // Cumulative playback count: each click on current paragraph increases repeat count by 1
-                selectCleanBtn._repeatCount = (selectCleanBtn._repeatCount || 0) + 1;
-                const count = selectCleanBtn._repeatCount;
+                // Step-wise repeat count: 1 -> 3 -> 6 -> 10 -> 15 (loops back to 1)
+                selectCleanBtn._stepIndex = ((selectCleanBtn._stepIndex ?? -1) + 1) % REPEAT_STEPS.length;
+                const count = REPEAT_STEPS[selectCleanBtn._stepIndex];
 
                 // Ensure natural pause between repeated units
                 let singleUnit = cleanEnglish;
@@ -1880,14 +1881,14 @@
 
                 selectCleanBtn.classList.add("ready");
                 selectCleanBtn.textContent = `Opt+Esc (${count}次)`;
-                selectCleanBtn.title = `已就绪！按 Option+Esc 将连续朗读 ${count} 次（再次点击继续累加）`;
+                selectCleanBtn.title = `已就绪！按 Option+Esc 将连续朗读 ${count} 次（阶梯递增: 1-3-6-10-15）`;
 
                 if (selectCleanBtn._timer) clearTimeout(selectCleanBtn._timer);
                 selectCleanBtn._timer = setTimeout(() => {
                     selectCleanBtn.classList.remove("ready");
                     selectCleanBtn.textContent = "🎙️ 选中文本";
-                    selectCleanBtn.title = "选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击可累加播放次数）";
-                    selectCleanBtn._repeatCount = 0;
+                    selectCleanBtn.title = "选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击阶梯累加: 1-3-6-10-15）";
+                    selectCleanBtn._stepIndex = -1;
                     if (lastActiveSelectCleanBtn === selectCleanBtn) {
                         lastActiveSelectCleanBtn = null;
                     }
