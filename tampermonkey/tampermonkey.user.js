@@ -1805,7 +1805,7 @@
                     </span>
                     <span class="isa-trans-tools">
                         <button class="isa-trans-btn speak" title="朗读当前英文段落">🔊 朗读英文</button>
-                        <button class="isa-trans-btn select-clean" title="选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读">🎙️ 选中文本</button>
+                        <button class="isa-trans-btn select-clean" title="选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击可累加播放次数）">🎙️ 选中文本</button>
                         <button class="isa-trans-btn close" title="关闭">✕</button>
                     </span>
                 </div>
@@ -1827,6 +1827,17 @@
 
                 if (!cleanEnglish) return;
 
+                // Cumulative playback count: each click increases repeat count by 1
+                selectCleanBtn._repeatCount = (selectCleanBtn._repeatCount || 0) + 1;
+                const count = selectCleanBtn._repeatCount;
+
+                // Ensure natural pause between repeated units
+                let singleUnit = cleanEnglish;
+                if (!/[.!?…"”’']$/.test(singleUnit)) {
+                    singleUnit += ".";
+                }
+                const repeatedText = Array(count).fill(singleUnit).join("\n\n\n");
+
                 let speechProxy = document.getElementById("isa-speech-proxy");
                 if (!speechProxy) {
                     speechProxy = document.createElement("textarea");
@@ -1837,21 +1848,25 @@
                     document.body.appendChild(speechProxy);
                 }
 
-                speechProxy.value = cleanEnglish;
+                speechProxy.value = repeatedText;
                 speechProxy.focus();
                 speechProxy.select();
 
                 if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(cleanEnglish).catch(() => {});
+                    navigator.clipboard.writeText(repeatedText).catch(() => {});
                 }
 
                 selectCleanBtn.classList.add("ready");
-                selectCleanBtn.textContent = "Opt+Esc";
+                selectCleanBtn.textContent = `Opt+Esc (${count}次)`;
+                selectCleanBtn.title = `已就绪！按 Option+Esc 将连续朗读 ${count} 次（再次点击继续累加）`;
+
                 if (selectCleanBtn._timer) clearTimeout(selectCleanBtn._timer);
                 selectCleanBtn._timer = setTimeout(() => {
                     selectCleanBtn.classList.remove("ready");
                     selectCleanBtn.textContent = "🎙️ 选中文本";
-                }, 1500);
+                    selectCleanBtn.title = "选中纯净段落文本，方便按 Option+Esc 调用系统原生朗读（连续点击可累加播放次数）";
+                    selectCleanBtn._repeatCount = 0;
+                }, 3000);
             };
 
             let isSpeaking = false;
