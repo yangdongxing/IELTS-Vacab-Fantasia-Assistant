@@ -1592,6 +1592,8 @@
             defSpan.textContent = rawDef;
             refs.translation.append(defSpan);
         }
+
+        const spoken = entry.sp || {};
         refs.example.hidden = !(spoken.en && spoken.zh);
         if (refs.focusBadge) {
             if (spoken.focus_zh) {
