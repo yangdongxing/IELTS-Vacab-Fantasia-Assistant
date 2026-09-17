@@ -912,7 +912,7 @@
                         height: min(740px, calc(100dvh - 48px));
                         max-height: calc(100vh - 48px);
                         display: grid;
-                        grid-template-rows: auto minmax(80px, 1fr) auto auto auto;
+                        grid-template-rows: auto auto minmax(80px, 1fr) auto auto;
                         overflow: hidden;
                         background: #111827;
                         color: #fff;
@@ -929,7 +929,7 @@
                     }
                     .geek-memory-word {
                         --geek-memory-word-drop: 0px;
-                        margin: 0 0 14px;
+                        margin: 0 0 6px;
                         color: #7dd3fc;
                         font-size: clamp(34px, 6vw, 56px);
                         line-height: 1.2;
@@ -972,7 +972,7 @@
                         opacity: 0;
                     }
                     .geek-memory-translation {
-                        margin: 12px 0 0;
+                        margin: 0 0 12px;
                         color: rgba(255,255,255,0.86);
                         font-size: 18px;
                         line-height: 1.5;
@@ -1068,8 +1068,8 @@
                 <div class="geek-memory-shell">
                   <div class="geek-memory-card" role="dialog" aria-modal="true">
                     <h2 class="geek-memory-word" id="geek-memory-word" title="点击朗读单词"></h2>
-                    <img class="geek-memory-image" id="geek-memory-image" alt="" draggable="false">
                     <p class="geek-memory-translation" id="geek-memory-translation"></p>
+                    <img class="geek-memory-image" id="geek-memory-image" alt="" draggable="false">
                     <div class="geek-memory-example" id="geek-memory-example" hidden>
                       <div class="geek-memory-focus-badge" id="geek-memory-focus-badge" hidden></div>
                       <p class="geek-memory-example-en" id="geek-memory-example-en" title="点击朗读例句"></p>
