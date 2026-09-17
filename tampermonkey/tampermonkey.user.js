@@ -14,6 +14,7 @@
 // @connect      localhost
 // @connect      translate.googleapis.com
 // @connect      api.mymemory.translated.net
+// @connect      open.bigmodel.cn
 // @connect      *
 // @run-at       document-end
 // ==/UserScript==
@@ -1901,14 +1902,15 @@
                 messages: [
                     {
                         role: "system",
-                        content: "你是顶级的雅思长难句与学术英语拆解专家。请将用户提供的英文句子或段落进行结构化核心语义语块拆解，并以严格的 JSON 格式输出，不要输出任何 Markdown 代码块标记（如 ```json）或前后闲聊。JSON 结构必须严格符合：\n{\n  \"chunks\": [\n    {\"en\": \"核心英文语块\", \"zh\": \"中文含义与语法原理解析（如：主语核心/宾语从句/结果状语）\"}\n  ],\n  \"summary\": \"一句话白话大意提炼（生动、通俗通顺，点明核心逻辑）\"\n}"
+                        content: "你是雅思长难句语块拆解专家。请将用户提供的英文句子进行核心语义语块拆解，并以严格的 JSON 格式输出，不要输出代码块标记或闲聊。格式要求：\n{\n  \"chunks\": [\n    {\"en\": \"核心英文语块\", \"zh\": \"中文含义与语法原理解析（如：主谓宾/从句/状语等）\"}\n  ],\n  \"summary\": \"一句话白话提炼（通俗易懂）\"\n}"
                     },
                     {
                         role: "user",
                         content: cleanText
                     }
                 ],
-                temperature: 0.2
+                max_tokens: 600,
+                temperature: 0.1
             };
 
             const url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
@@ -1939,7 +1941,7 @@
                         "Authorization": "Bearer " + apiKey
                     },
                     data: reqData,
-                    timeout: 15000,
+                    timeout: 35000,
                     onload: (res) => {
                         if (res.status >= 200 && res.status < 300) {
                             handleSuccess(res.responseText);
@@ -1947,7 +1949,7 @@
                             reject(new Error("API 请求失败: " + res.status));
                         }
                     },
-                    ontimeout: () => reject(new Error("请求超时")),
+                    ontimeout: () => reject(new Error("请求超时（网络响应较慢，可点击🔄重试）")),
                     onerror: (err) => reject(err)
                 });
             } else {
