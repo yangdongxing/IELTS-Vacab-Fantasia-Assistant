@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.5.0
-// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译。
+// @version      1.6.0
+// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译与智谱AI长难句核心语块逐项拆解。
 // @author       极客助手
 // @match        *://*/*
 // @match        file:///*
@@ -948,6 +948,76 @@
                 font-size: 12.5px !important;
             }
 
+            /* Sentence Chunk Breakdown (AI) */
+            .isa-breakdown-container {
+                margin-top: 10px !important;
+                padding-top: 10px !important;
+                border-top: 1px dashed #cbd5e1 !important;
+                font-size: 13px !important;
+            }
+            .isa-breakdown-header {
+                display: flex !important;
+                justify-content: space-between !important;
+                align-items: center !important;
+                margin-bottom: 6px !important;
+                font-size: 12px !important;
+                font-weight: 600 !important;
+                color: #0369a1 !important;
+            }
+            .isa-breakdown-title {
+                display: inline-flex !important;
+                align-items: center !important;
+                gap: 5px !important;
+            }
+            .isa-breakdown-loading {
+                color: #64748b !important;
+                font-style: italic !important;
+                font-size: 12.5px !important;
+                padding: 4px 0 !important;
+            }
+            .isa-breakdown-error {
+                color: #94a3b8 !important;
+                font-size: 12px !important;
+            }
+            .isa-breakdown-list {
+                list-style: none !important;
+                padding: 0 !important;
+                margin: 0 0 8px 0 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 6px !important;
+            }
+            .isa-breakdown-item {
+                background: rgba(255, 255, 255, 0.75) !important;
+                border-left: 2.5px solid #38bdf8 !important;
+                border-radius: 4px !important;
+                padding: 5px 9px !important;
+                line-height: 1.5 !important;
+            }
+            .isa-breakdown-en {
+                font-weight: 600 !important;
+                color: #0f172a !important;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            }
+            .isa-breakdown-zh {
+                color: #475569 !important;
+                font-size: 12.5px !important;
+                margin-top: 2px !important;
+            }
+            .isa-breakdown-summary {
+                background: #f8fafc !important;
+                border: 1px solid #e2e8f0 !important;
+                border-radius: 5px !important;
+                padding: 6px 10px !important;
+                margin-top: 6px !important;
+                color: #1e293b !important;
+                line-height: 1.5 !important;
+                font-size: 12.5px !important;
+            }
+            .isa-breakdown-summary strong {
+                color: #d97706 !important;
+            }
+
             /* Fullscreen Memory Modal Overlay Container */
             #geek-memory-modal {
                 position: fixed !important;
@@ -1802,6 +1872,100 @@
         });
     }
 
+    const ZHIPU_API_KEY_DEFAULT = "453806761358446aba219751fa9ff97d.Pe3UBuEiNTj0rSNY";
+
+    function getZhipuApiKey() {
+        try {
+            if (typeof GM_getValue === "function") {
+                const stored = GM_getValue("isa_zhipu_api_key", "");
+                if (stored && stored.trim()) return stored.trim();
+            }
+        } catch (e) {}
+        return ZHIPU_API_KEY_DEFAULT;
+    }
+
+    function analyzeSentenceChunks(text) {
+        return new Promise((resolve, reject) => {
+            const apiKey = getZhipuApiKey();
+            if (!apiKey) {
+                return reject(new Error("未配置智谱 API Key"));
+            }
+
+            const cleanText = (text || "").trim();
+            if (!cleanText) {
+                return reject(new Error("分析文本为空"));
+            }
+
+            const payload = {
+                model: "glm-4-flash",
+                messages: [
+                    {
+                        role: "system",
+                        content: "你是顶级的雅思长难句与学术英语拆解专家。请将用户提供的英文句子或段落进行结构化核心语义语块拆解，并以严格的 JSON 格式输出，不要输出任何 Markdown 代码块标记（如 ```json）或前后闲聊。JSON 结构必须严格符合：\n{\n  \"chunks\": [\n    {\"en\": \"核心英文语块\", \"zh\": \"中文含义与语法原理解析（如：主语核心/宾语从句/结果状语）\"}\n  ],\n  \"summary\": \"一句话白话大意提炼（生动、通俗通顺，点明核心逻辑）\"\n}"
+                    },
+                    {
+                        role: "user",
+                        content: cleanText
+                    }
+                ],
+                temperature: 0.2
+            };
+
+            const url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+            const reqData = JSON.stringify(payload);
+
+            const handleSuccess = (respText) => {
+                try {
+                    const data = JSON.parse(respText);
+                    const rawContent = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+                    if (!rawContent) {
+                        return reject(new Error("模型未返回内容"));
+                    }
+                    // Strip optional markdown fencing if model outputs ```json ... ```
+                    const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+                    const parsed = JSON.parse(cleanJsonStr);
+                    resolve(parsed);
+                } catch (e) {
+                    reject(e);
+                }
+            };
+
+            if (typeof GM_xmlhttpRequest === "function") {
+                GM_xmlhttpRequest({
+                    method: "POST",
+                    url: url,
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer " + apiKey
+                    },
+                    data: reqData,
+                    timeout: 15000,
+                    onload: (res) => {
+                        if (res.status >= 200 && res.status < 300) {
+                            handleSuccess(res.responseText);
+                        } else {
+                            reject(new Error("API 请求失败: " + res.status));
+                        }
+                    },
+                    ontimeout: () => reject(new Error("请求超时")),
+                    onerror: (err) => reject(err)
+                });
+            } else {
+                fetch(url, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer " + apiKey
+                    },
+                    body: reqData
+                })
+                    .then(r => r.text())
+                    .then(handleSuccess)
+                    .catch(reject);
+            }
+        });
+    }
+
     function insertParagraphTranslation(targetParagraph, textToTranslate) {
         if (!targetParagraph) return;
 
@@ -1825,6 +1989,14 @@
                     </span>
                 </div>
                 <div class="isa-trans-content isa-trans-loading">正在翻译段落中...</div>
+                <div class="isa-breakdown-container">
+                    <div class="isa-breakdown-header">
+                        <span class="isa-breakdown-title">
+                            <span>🧩 核心语块逐项拆解与逻辑解析 (AI)</span>
+                        </span>
+                    </div>
+                    <div class="isa-breakdown-content isa-breakdown-loading">正在智能解析长难句核心语块...</div>
+                </div>
             `;
             targetParagraph.insertAdjacentElement("afterend", transBox);
 
@@ -1952,6 +2124,7 @@
             retryBtn.onclick = (e) => {
                 e.stopPropagation();
                 fetchTranslation();
+                fetchBreakdown();
             };
 
             closeBtn.onclick = (e) => {
@@ -2002,7 +2175,57 @@
                 });
         }
 
+        const breakdownContentEl = transBox.querySelector(".isa-breakdown-content");
+
+        function fetchBreakdown() {
+            if (!breakdownContentEl) return;
+            breakdownContentEl.className = "isa-breakdown-content isa-breakdown-loading";
+            breakdownContentEl.textContent = "正在智能解析长难句核心语块...";
+
+            analyzeSentenceChunks(textToTranslate)
+                .then(res => {
+                    if (!res) {
+                        breakdownContentEl.className = "isa-breakdown-content isa-breakdown-error";
+                        breakdownContentEl.textContent = "（暂未能解析语块）";
+                        return;
+                    }
+
+                    let html = "";
+                    if (Array.isArray(res.chunks) && res.chunks.length > 0) {
+                        html += `<ul class="isa-breakdown-list">`;
+                        res.chunks.forEach(c => {
+                            const enPart = (c.en || "").trim();
+                            const zhPart = (c.zh || "").trim();
+                            html += `
+                                <li class="isa-breakdown-item">
+                                    <div class="isa-breakdown-en">• "${enPart}"</div>
+                                    <div class="isa-breakdown-zh">▸ ${zhPart}</div>
+                                </li>
+                            `;
+                        });
+                        html += `</ul>`;
+                    }
+
+                    if (res.summary && res.summary.trim()) {
+                        html += `
+                            <div class="isa-breakdown-summary">
+                                <strong>💡 简单来说：</strong>${res.summary.trim()}
+                            </div>
+                        `;
+                    }
+
+                    breakdownContentEl.className = "isa-breakdown-content";
+                    breakdownContentEl.innerHTML = html || "（解析结果为空）";
+                })
+                .catch(err => {
+                    console.warn("[ISA] Breakdown error:", err);
+                    breakdownContentEl.className = "isa-breakdown-content isa-breakdown-error";
+                    breakdownContentEl.textContent = `（语块解析暂时受阻: ${err.message || "请求失败"}）`;
+                });
+        }
+
         fetchTranslation();
+        fetchBreakdown();
     }
 
     // ==========================================
