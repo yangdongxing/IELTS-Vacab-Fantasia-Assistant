@@ -1196,7 +1196,7 @@
                     height: min(740px, calc(100dvh - 48px));
                     max-height: calc(100vh - 48px);
                     display: grid;
-                    grid-template-rows: auto auto minmax(80px, 1fr) auto auto;
+                    grid-template-rows: auto minmax(80px, 1fr) auto auto;
                     overflow: hidden;
                     background: #111827;
                     color: #fff;
@@ -1211,8 +1211,25 @@
                     -webkit-user-select: text;
                     position: relative;
                 }
+                .geek-memory-header {
+                    --geek-memory-header-drop: 0px;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    position: relative;
+                    z-index: 2;
+                    transform: translate3d(0, 0, 0) scale(1);
+                    backface-visibility: hidden;
+                    transition:
+                        transform 1080ms cubic-bezier(0.16, 1, 0.3, 1);
+                    will-change: transform;
+                    pointer-events: auto;
+                }
+                .geek-memory-header.is-memorized {
+                    transform: translate3d(0, var(--geek-memory-header-drop), 0) scale(1.14);
+                }
                 .geek-memory-word {
-                    --geek-memory-word-drop: 0px;
                     margin: 0 0 6px;
                     color: #7dd3fc;
                     font-size: clamp(34px, 6vw, 56px);
@@ -1220,21 +1237,14 @@
                     font-weight: 800;
                     text-align: center;
                     overflow-wrap: anywhere;
-                    position: relative;
-                    z-index: 2;
-                    transform: translate3d(0, 0, 0) scale(1);
-                    backface-visibility: hidden;
                     transition:
-                        transform 1080ms cubic-bezier(0.16, 1, 0.3, 1),
                         color 420ms ease-out,
                         text-shadow 420ms ease-out;
-                    will-change: transform;
                     cursor: pointer;
                 }
-                .geek-memory-word.is-memorized {
+                .geek-memory-header.is-memorized .geek-memory-word {
                     color: #34d399;
                     text-shadow: 0 0 18px rgba(52, 211, 153, 0.38);
-                    transform: translate3d(0, var(--geek-memory-word-drop), 0) scale(1.14);
                 }
                 .geek-memory-image {
                     display: block;
@@ -1278,12 +1288,23 @@
                     border-radius: 4px;
                     letter-spacing: 0.2px;
                     line-height: 1.35;
+                    transition: color 420ms ease-out, background-color 420ms ease-out, border-color 420ms ease-out;
                 }
                 .geek-memory-def {
                     color: rgba(241, 245, 249, 0.92);
                     font-size: 16px;
                     font-weight: 500;
                     letter-spacing: 0.3px;
+                    transition: color 420ms ease-out, text-shadow 420ms ease-out;
+                }
+                .geek-memory-header.is-memorized .geek-memory-pos {
+                    color: #34d399;
+                    background: rgba(52, 211, 153, 0.16);
+                    border-color: rgba(52, 211, 153, 0.35);
+                }
+                .geek-memory-header.is-memorized .geek-memory-def {
+                    color: #d1fae5;
+                    text-shadow: 0 0 12px rgba(52, 211, 153, 0.25);
                 }
                 .geek-memory-example {
                     margin: 12px 0 0;
@@ -1373,8 +1394,10 @@
             </style>
             <div class="geek-memory-shell">
               <div class="geek-memory-card" role="dialog" aria-modal="true">
-                <h2 class="geek-memory-word" id="geek-memory-word" title="点击朗读单词"></h2>
-                <p class="geek-memory-translation" id="geek-memory-translation"></p>
+                <div class="geek-memory-header" id="geek-memory-header">
+                  <h2 class="geek-memory-word" id="geek-memory-word" title="点击朗读单词"></h2>
+                  <div class="geek-memory-translation" id="geek-memory-translation"></div>
+                </div>
                 <img class="geek-memory-image" id="geek-memory-image" alt="" draggable="false">
                 <div class="geek-memory-example" id="geek-memory-example" hidden>
                   <div class="geek-memory-focus-badge" id="geek-memory-focus-badge" hidden></div>
@@ -1393,6 +1416,7 @@
         memoryModalRefs = {
             modal,
             card,
+            header: shadow.getElementById("geek-memory-header"),
             word: shadow.getElementById("geek-memory-word"),
             image: shadow.getElementById("geek-memory-image"),
             translation: shadow.getElementById("geek-memory-translation"),
@@ -1463,8 +1487,12 @@
 
     function resetMemoryAnimation() {
         if (!memoryModalRefs) return;
-        const { card, word } = memoryModalRefs;
+        const { card, header, word } = memoryModalRefs;
         if (card) card.classList.remove("is-memorizing");
+        if (header) {
+            header.classList.remove("is-memorized");
+            header.style.removeProperty("--geek-memory-header-drop");
+        }
         if (word) {
             word.classList.remove("is-memorized");
             word.style.removeProperty("--geek-memory-word-drop");
@@ -1473,22 +1501,25 @@
 
     function playCorrectMemoryAnimation() {
         if (!memoryModalRefs) return;
-        const { card, word, image } = memoryModalRefs;
-        if (!card || !word || !image) return;
+        const { card, header, word, image } = memoryModalRefs;
+        const targetEl = header || word;
+        if (!card || !targetEl || !image) return;
 
         resetMemoryAnimation();
 
-        const wordRect = word.getBoundingClientRect();
+        const targetRect = targetEl.getBoundingClientRect();
         const imageRect = image.getBoundingClientRect();
-        const wordCenter = wordRect.top + wordRect.height / 2;
+        const targetCenter = targetRect.top + targetRect.height / 2;
         const imageCenter = imageRect.top + imageRect.height / 2;
-        const dropDistance = Math.max(0, imageCenter - wordCenter);
+        const dropDistance = Math.max(0, imageCenter - targetCenter);
 
-        word.style.setProperty("--geek-memory-word-drop", `${dropDistance}px`);
+        targetEl.style.setProperty("--geek-memory-header-drop", `${dropDistance}px`);
+        targetEl.style.setProperty("--geek-memory-word-drop", `${dropDistance}px`);
         requestAnimationFrame(() => {
             if (!isMemoryModalOpen()) return;
             card.classList.add("is-memorizing");
-            word.classList.add("is-memorized");
+            targetEl.classList.add("is-memorized");
+            if (word) word.classList.add("is-memorized");
         });
     }
 
