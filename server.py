@@ -11,10 +11,72 @@ Serves on http://127.0.0.1:8777/ with:
 import json
 import os
 import sys
+import threading
+import time
+import subprocess
 import urllib.parse
 import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+
+class SiriSpeaker:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._current_proc = None
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def stop(self):
+        with self._lock:
+            self._stop_event.set()
+            if self._current_proc and self._current_proc.poll() is None:
+                try:
+                    self._current_proc.terminate()
+                except Exception:
+                    pass
+                self._current_proc = None
+
+    def speak(self, text, count=1):
+        self.stop()
+        with self._lock:
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._run, args=(text, int(count)), daemon=True)
+            self._thread.start()
+
+    def is_speaking(self):
+        with self._lock:
+            return self._thread is not None and self._thread.is_alive()
+
+    def _run(self, text, count):
+        clean_text = (text or "").strip()
+        if not clean_text:
+            return
+        if not clean_text.endswith(('.', '!', '?', '"', '”', "'")):
+            clean_text += '.'
+
+        for i in range(count):
+            if self._stop_event.is_set():
+                break
+            try:
+                # Use macOS native say command with default spoken content voice (Siri)
+                proc = subprocess.Popen(["say", clean_text])
+                with self._lock:
+                    self._current_proc = proc
+                proc.wait()
+            except Exception as e:
+                print(f"[SiriSpeaker] say error: {e}", file=sys.stderr)
+                break
+            finally:
+                with self._lock:
+                    self._current_proc = None
+
+            if self._stop_event.is_set():
+                break
+
+            if i < count - 1:
+                time.sleep(0.8)
+
+siri_speaker = SiriSpeaker()
 
 PROJECT_DIR = Path(__file__).resolve().parent
 
@@ -95,6 +157,15 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
                     self.wfile.write(STATS_FILE.read_bytes())
             else:
                 self.wfile.write(b'{"summary":{"marks":0,"modalOpens":0,"inputSuccess":0},"words":{}}')
+            return
+
+        # Siri speech status API
+        if req_name.startswith("api/siri_speak"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"speaking": siri_speaker.is_speaking()}).encode('utf-8'))
             return
 
         # Translation proxy API
@@ -208,6 +279,38 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
                 self.wfile.write(str(e).encode('utf-8'))
+                return
+
+        if req_path == "api/siri_speak":
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length)
+            try:
+                data = json.loads(body.decode('utf-8')) if body else {}
+                action = data.get("action", "speak")
+                if action == "stop":
+                    siri_speaker.stop()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(b'{"status":"ok","speaking":false}')
+                    return
+                else:
+                    text = data.get("text", "")
+                    count = int(data.get("count", 1))
+                    siri_speaker.speak(text, count)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "ok", "speaking": True, "count": count}).encode('utf-8'))
+                    return
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
                 return
 
         self.send_response(404)

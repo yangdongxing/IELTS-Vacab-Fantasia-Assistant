@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.7.4
-// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪与智谱AI长难句核心语块一键全选与拆解。
+// @version      1.7.5
+// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪、智谱AI长难句核心语块一键全选朗读，以及Siri高保真语音1-3-6-10-15一键连续播放。
 // @author       极客助手
 // @match        *://*/*
 // @match        file:///*
@@ -1031,6 +1031,11 @@
             .isa-trans-btn.select-clean.ready {
                 background: rgba(34, 197, 94, 0.15) !important;
                 color: #15803d !important;
+                font-weight: 600 !important;
+            }
+            .isa-trans-btn.select-clean.speaking {
+                background: rgba(225, 29, 72, 0.12) !important;
+                color: #e11d48 !important;
                 font-weight: 600 !important;
             }
             .isa-trans-btn.close:hover {
@@ -2185,14 +2190,40 @@
     let lastActiveSelectCleanBtn = null;
     const REPEAT_STEPS = [1, 3, 6, 10, 15];
 
+    function stopSiriPlayback() {
+        return fetch("http://127.0.0.1:8777/api/siri_speak", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "stop" })
+        }).catch(() => {});
+    }
+
+    function startSiriPlayback(text, count = 1) {
+        return fetch("http://127.0.0.1:8777/api/siri_speak", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "speak", text, count })
+        }).then(res => res.json());
+    }
+
+    function checkSiriStatus() {
+        return fetch("http://127.0.0.1:8777/api/siri_speak")
+            .then(res => res.json())
+            .catch(() => ({ speaking: false }));
+    }
+
     function resetAllSelectCleanBtns(exceptBtn = null) {
         document.querySelectorAll(".isa-trans-btn.select-clean").forEach(btn => {
             if (btn !== exceptBtn) {
                 if (btn._timer) clearTimeout(btn._timer);
+                if (btn._debounceTimer) clearTimeout(btn._debounceTimer);
+                if (btn._pollInterval) clearInterval(btn._pollInterval);
                 btn.classList.remove("ready");
+                btn.classList.remove("speaking");
                 btn.textContent = "🎧 Siri朗读";
-                btn.title = "就绪纯净段落，按 Option+Esc 唤起高保真 Siri 朗读（连续点击阶梯累加: 1-3-6-10-15）";
+                btn.title = "就绪纯净段落，点击切换次数（1-3-6-10-15）停顿后自动播放 Siri，亦可按 Option+Esc";
                 btn._stepIndex = -1;
+                btn._isSiriSpeaking = false;
             }
         });
     }
@@ -2422,12 +2453,35 @@
             selectCleanBtn.onclick = (e) => {
                 e.stopPropagation();
 
-                // If switching from another paragraph, reset previous buttons and zero out count
+                // If currently speaking, clicking immediately stops Siri
+                if (selectCleanBtn._isSiriSpeaking) {
+                    stopSiriPlayback();
+                    if (selectCleanBtn._pollInterval) {
+                        clearInterval(selectCleanBtn._pollInterval);
+                        selectCleanBtn._pollInterval = null;
+                    }
+                    if (selectCleanBtn._debounceTimer) {
+                        clearTimeout(selectCleanBtn._debounceTimer);
+                        selectCleanBtn._debounceTimer = null;
+                    }
+                    selectCleanBtn._isSiriSpeaking = false;
+                    selectCleanBtn.classList.remove("speaking");
+                    selectCleanBtn.classList.remove("ready");
+                    selectCleanBtn.textContent = "🎧 Siri朗读";
+                    selectCleanBtn.title = "就绪纯净段落，点击切换次数（1-3-6-10-15）停顿后自动播放 Siri，亦可按 Option+Esc";
+                    selectCleanBtn._stepIndex = -1;
+                    return;
+                }
+
+                // If switching from another paragraph, reset other buttons
                 if (lastActiveSelectCleanBtn !== selectCleanBtn) {
                     resetAllSelectCleanBtns(selectCleanBtn);
                     selectCleanBtn._stepIndex = -1;
                     lastActiveSelectCleanBtn = selectCleanBtn;
                 }
+
+                // If browser speech is running, stop it
+                stopSpeaking();
 
                 const rawText = transBox._currentEnglishText || textToTranslate || (targetParagraph ? targetParagraph.innerText : "");
                 const cleanEnglish = (rawText || "")
@@ -2440,7 +2494,7 @@
                 selectCleanBtn._stepIndex = ((selectCleanBtn._stepIndex ?? -1) + 1) % REPEAT_STEPS.length;
                 const count = REPEAT_STEPS[selectCleanBtn._stepIndex];
 
-                // Ensure natural pause between repeated units (doubled pause time)
+                // Prepare clipboard & speechProxy as backup (Option+Esc ready)
                 let singleUnit = cleanEnglish;
                 if (!/[.!?…"”’']$/.test(singleUnit)) {
                     singleUnit += ".";
@@ -2465,20 +2519,54 @@
                     navigator.clipboard.writeText(repeatedText).catch(() => {});
                 }
 
+                // Step visual feedback while user is rapidly clicking
+                selectCleanBtn.classList.remove("speaking");
                 selectCleanBtn.classList.add("ready");
-                selectCleanBtn.textContent = `Opt+Esc (${count}次)`;
-                selectCleanBtn.title = `已就绪！按 Option+Esc 将连续朗读 ${count} 次（阶梯递增: 1-3-6-10-15）`;
+                selectCleanBtn.textContent = `🎧 Siri (${count}次)`;
+                selectCleanBtn.title = `连续点击切换播放次数 (1-3-6-10-15)，停顿后自动开播 Siri`;
 
-                if (selectCleanBtn._timer) clearTimeout(selectCleanBtn._timer);
-                selectCleanBtn._timer = setTimeout(() => {
-                    selectCleanBtn.classList.remove("ready");
-                    selectCleanBtn.textContent = "🎧 Siri朗读";
-                    selectCleanBtn.title = "就绪纯净段落，按 Option+Esc 唤起高保真 Siri 朗读（连续点击阶梯累加: 1-3-6-10-15）";
-                    selectCleanBtn._stepIndex = -1;
-                    if (lastActiveSelectCleanBtn === selectCleanBtn) {
-                        lastActiveSelectCleanBtn = null;
-                    }
-                }, 3000);
+                // Debounce timer: 650ms after user stops clicking, auto-play via server!
+                if (selectCleanBtn._debounceTimer) clearTimeout(selectCleanBtn._debounceTimer);
+                selectCleanBtn._debounceTimer = setTimeout(() => {
+                    startSiriPlayback(cleanEnglish, count)
+                        .then(() => {
+                            selectCleanBtn._isSiriSpeaking = true;
+                            selectCleanBtn.classList.remove("ready");
+                            selectCleanBtn.classList.add("speaking");
+                            selectCleanBtn.textContent = `⏹ 停止Siri (${count}次)`;
+                            selectCleanBtn.title = `正在播放中（共 ${count} 次），点击即可停止`;
+
+                            // Poll for completion to revert button state
+                            if (selectCleanBtn._pollInterval) clearInterval(selectCleanBtn._pollInterval);
+                            selectCleanBtn._pollInterval = setInterval(() => {
+                                checkSiriStatus().then(st => {
+                                    if (!st || !st.speaking) {
+                                        if (selectCleanBtn._pollInterval) {
+                                            clearInterval(selectCleanBtn._pollInterval);
+                                            selectCleanBtn._pollInterval = null;
+                                        }
+                                        selectCleanBtn._isSiriSpeaking = false;
+                                        selectCleanBtn.classList.remove("speaking");
+                                        selectCleanBtn.classList.remove("ready");
+                                        selectCleanBtn.textContent = "🎧 Siri朗读";
+                                        selectCleanBtn.title = "就绪纯净段落，点击切换次数（1-3-6-10-15）停顿后自动播放 Siri，亦可按 Option+Esc";
+                                        selectCleanBtn._stepIndex = -1;
+                                    }
+                                }).catch(() => {});
+                            }, 500);
+                        })
+                        .catch(() => {
+                            // Fallback to Opt+Esc visual hint if local server is not running
+                            selectCleanBtn.textContent = `Opt+Esc (${count}次)`;
+                            selectCleanBtn.title = `已就绪！按 Option+Esc 朗读（本地服务未响应）`;
+                            if (selectCleanBtn._timer) clearTimeout(selectCleanBtn._timer);
+                            selectCleanBtn._timer = setTimeout(() => {
+                                selectCleanBtn.classList.remove("ready");
+                                selectCleanBtn.textContent = "🎧 Siri朗读";
+                                selectCleanBtn._stepIndex = -1;
+                            }, 3000);
+                        });
+                }, 650);
             };
 
             let isSpeaking = false;
@@ -2500,6 +2588,7 @@
 
             speakBtn.onclick = (e) => {
                 e.stopPropagation();
+                stopSiriPlayback();
                 if (isSpeaking) {
                     stopSpeaking();
                     return;
@@ -2617,6 +2706,15 @@
             closeBtn.onclick = (e) => {
                 e.stopPropagation();
                 stopSpeaking();
+                stopSiriPlayback();
+                if (selectCleanBtn._pollInterval) {
+                    clearInterval(selectCleanBtn._pollInterval);
+                    selectCleanBtn._pollInterval = null;
+                }
+                if (selectCleanBtn._debounceTimer) {
+                    clearTimeout(selectCleanBtn._debounceTimer);
+                    selectCleanBtn._debounceTimer = null;
+                }
                 if (lastActiveSelectCleanBtn === selectCleanBtn) {
                     lastActiveSelectCleanBtn = null;
                 }
@@ -2726,6 +2824,7 @@
 
                             // 4. Reset paragraph speech button and highlights if active
                             clearSpeechHighlights();
+                            stopSiriPlayback();
                             const activeSpeakBtn = transBox.querySelector(".isa-trans-btn.speak.speaking");
                             if (activeSpeakBtn) {
                                 activeSpeakBtn.classList.remove("speaking");
