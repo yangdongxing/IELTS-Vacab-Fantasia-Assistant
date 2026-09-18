@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.7.5
-// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪、智谱AI长难句核心语块一键全选朗读，以及Siri高保真语音1-3-6-10-15一键连续播放。
+// @version      1.7.6
+// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪、智谱AI长难句核心语块一键全选朗读（默认优先原生Siri发音，离线自动降级浏览器发音），以及Siri高保真语音1-3-6-10-15一键连续播放。
 // @author       极客助手
 // @match        *://*/*
 // @match        file:///*
@@ -2831,9 +2831,11 @@
                                 activeSpeakBtn.textContent = "🔊 朗读英文";
                             }
 
-                            // 5. Read aloud via browser speech synthesis
+                            // 5. Read aloud: default to macOS native Siri; fallback to browser speech if server offline
                             if (enText) {
-                                speakText(enText, "en-US");
+                                startSiriPlayback(enText, 1).catch(() => {
+                                    speakText(enText, "en-US");
+                                });
                             }
                         }
                     };
