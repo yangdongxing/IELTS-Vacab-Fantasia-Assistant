@@ -19,6 +19,9 @@ import urllib.request
 import pty
 import re
 import queue
+import struct
+import fcntl
+import termios
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -88,6 +91,20 @@ class SiriSpeaker:
         if not clean_text.endswith(('.', '!', '?', '"', '”', "'")):
             clean_text += '.'
 
+        def normalize_for_say(t):
+            return (t
+                .replace('\u2013', '-')   # en-dash (–)
+                .replace('\u2014', '-')   # em-dash (—)
+                .replace('\u2018', "'")   # left single quote (‘)
+                .replace('\u2019', "'")   # right single quote (’)
+                .replace('\u201c', '"')   # left double quote (“)
+                .replace('\u201d', '"')   # right double quote (”)
+                .replace('\u2026', '...') # ellipsis (…)
+                .replace('\u00a0', ' ')   # non-breaking space
+            )
+
+        spoken_text = normalize_for_say(clean_text)
+
         pattern = re.compile(rb'\x1b\[1m([^\x1b]+)\x1b\(B\x1b\[m')
         self._broadcast("start", {"total_loops": count, "text": clean_text})
 
@@ -95,39 +112,25 @@ class SiriSpeaker:
             if self._stop_event.is_set():
                 break
 
-            # Speed logic:
-            # 1 time: standard default speed (no -r)
-            # 3 times: 1st loop slow (-r 90), 2nd loop medium (-r 115), 3rd loop standard (no -r)
-            # 6/10/15 times: 1st/2nd/3rd match 3-times speed, 4th and beyond stay at standard speed
-            rate_arg = []
-            speed_desc = "标准速度"
-            if count >= 3:
-                if loop_idx == 0:
-                    rate_arg = ["-r", "90"]
-                    speed_desc = "慢速 (0.8x)"
-                elif loop_idx == 1:
-                    rate_arg = ["-r", "115"]
-                    speed_desc = "中速 (0.9x)"
-                else:
-                    speed_desc = "标准速度 (1.0x)"
-
-            self._broadcast("loop_start", {
-                "loop_index": loop_idx,
-                "total_loops": count,
-                "speed": speed_desc
-            })
+            self._broadcast("loop_start", {"loop_index": loop_idx, "total_loops": count})
 
             master, slave = pty.openpty()
             with self._lock:
                 self._current_master = master
 
+            # Set wide virtual terminal (1000 cols) to prevent say from line-wrapping output
+            try:
+                winsize = struct.pack('HHHH', 24, 1000, 0, 0)
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, winsize)
+            except Exception:
+                pass
+
             env = dict(os.environ, TERM="xterm")
             proc = None
             try:
                 # Run say in interactive mode inside PTY to stream spoken words
-                cmd = ["say", "--interactive=bold"] + rate_arg + [clean_text]
                 proc = subprocess.Popen(
-                    cmd,
+                    ["say", "--interactive=bold", spoken_text],
                     stdin=slave, stdout=slave, stderr=slave,
                     close_fds=True, env=env
                 )
@@ -166,7 +169,10 @@ class SiriSpeaker:
                         for m in matches:
                             word_str = m.decode("utf-8", errors="ignore")
                             raw = word_str.strip('.,!?:;"\'()[]{}')
-                            idx = clean_text.find(raw, search_pos) if raw else -1
+                            # Guard: reject multi-word or abnormal fallback chunks
+                            if not raw or ' ' in raw or len(raw) > 40:
+                                continue
+                            idx = clean_text.find(raw, search_pos)
                             if idx < 0 and raw:
                                 idx = clean_text.lower().find(raw.lower(), search_pos)
                             if idx >= 0:
@@ -178,7 +184,7 @@ class SiriSpeaker:
                                 "word": word_str,
                                 "raw_word": raw,
                                 "char_index": idx,
-                                "char_length": len(raw) if raw else len(word_str),
+                                "char_length": len(raw),
                                 "loop_index": loop_idx,
                                 "total_loops": count
                             })

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.8.1
+// @version      1.8.2
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -644,7 +644,7 @@
         lookupWord: (word) => {
             return lookupWord(word);
         },
-        version: "1.7.2",
+        version: "1.8.2",
         active: true
     };
     if (typeof window !== "undefined" && window !== rootWin) {
@@ -2423,9 +2423,14 @@
         const globalIdx = offsetInParagraph + localIdx;
         if (globalIdx < 0 || globalIdx >= speechMap.charMap.length) return;
 
+        // Guard against whole-sentence or multi-word chunk anomalies
+        if (rawWord && (rawWord.includes(" ") || rawWord.length > 40)) {
+            return;
+        }
+
         let len = wordLen;
-        if (!len || len <= 0) {
-            if (rawWord && rawWord.length > 0) {
+        if (!len || len <= 0 || len > 40) {
+            if (rawWord && rawWord.length > 0 && rawWord.length <= 40) {
                 len = rawWord.length;
             } else {
                 const sub = speechMap.fullText.slice(globalIdx);
@@ -2433,6 +2438,7 @@
                 len = m ? m[0].length : 1;
             }
         }
+        if (len > 40) len = 40;
 
         const wordStartIdx = globalIdx;
         const wordEndIdx = Math.min(globalIdx + len, speechMap.charMap.length);
@@ -2521,6 +2527,10 @@
 
                 const rawText = transBox._currentEnglishText || textToTranslate || (targetParagraph ? targetParagraph.innerText : "");
                 const cleanEnglish = (rawText || "")
+                    .replace(/[\u2013\u2014]/g, "-")
+                    .replace(/[\u2018\u2019]/g, "'")
+                    .replace(/[\u201c\u201d]/g, '"')
+                    .replace(/\u2026/g, "...")
                     .replace(/\s+/g, " ")
                     .trim();
 
