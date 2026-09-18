@@ -16,6 +16,9 @@ import time
 import subprocess
 import urllib.parse
 import urllib.request
+import pty
+import re
+import queue
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -23,8 +26,32 @@ class SiriSpeaker:
     def __init__(self):
         self._lock = threading.Lock()
         self._current_proc = None
+        self._current_master = None
         self._stop_event = threading.Event()
         self._thread = None
+        self._subscribers = []
+
+    def add_subscriber(self):
+        q = queue.Queue(maxsize=300)
+        with self._lock:
+            self._subscribers.append(q)
+        return q
+
+    def remove_subscriber(self, q):
+        with self._lock:
+            if q in self._subscribers:
+                self._subscribers.remove(q)
+
+    def _broadcast(self, event_type, data):
+        with self._lock:
+            dead = []
+            for q in self._subscribers:
+                try:
+                    q.put_nowait({"type": event_type, **data})
+                except queue.Full:
+                    dead.append(q)
+            for d in dead:
+                self._subscribers.remove(d)
 
     def stop(self):
         with self._lock:
@@ -35,6 +62,13 @@ class SiriSpeaker:
                 except Exception:
                     pass
                 self._current_proc = None
+            if self._current_master is not None:
+                try:
+                    os.close(self._current_master)
+                except OSError:
+                    pass
+                self._current_master = None
+        self._broadcast("stop", {})
 
     def speak(self, text, count=1):
         self.stop()
@@ -54,27 +88,111 @@ class SiriSpeaker:
         if not clean_text.endswith(('.', '!', '?', '"', '”', "'")):
             clean_text += '.'
 
-        for i in range(count):
+        pattern = re.compile(rb'\x1b\[1m([^\x1b]+)\x1b\(B\x1b\[m')
+        self._broadcast("start", {"total_loops": count, "text": clean_text})
+
+        for loop_idx in range(count):
             if self._stop_event.is_set():
                 break
+
+            self._broadcast("loop_start", {"loop_index": loop_idx, "total_loops": count})
+
+            master, slave = pty.openpty()
+            with self._lock:
+                self._current_master = master
+
+            env = dict(os.environ, TERM="xterm")
+            proc = None
             try:
-                # Use macOS native say command with default spoken content voice (Siri)
-                proc = subprocess.Popen(["say", clean_text])
+                # Run say in interactive mode inside PTY to stream spoken words
+                proc = subprocess.Popen(
+                    ["say", "--interactive=bold", clean_text],
+                    stdin=slave, stdout=slave, stderr=slave,
+                    close_fds=True, env=env
+                )
                 with self._lock:
                     self._current_proc = proc
-                proc.wait()
             except Exception as e:
-                print(f"[SiriSpeaker] say error: {e}", file=sys.stderr)
+                print(f"[SiriSpeaker] say PTY error: {e}", file=sys.stderr)
+                os.close(slave)
+                with self._lock:
+                    if self._current_master == master:
+                        try:
+                            os.close(master)
+                        except OSError:
+                            pass
+                        self._current_master = None
                 break
             finally:
-                with self._lock:
-                    self._current_proc = None
+                try:
+                    os.close(slave)
+                except OSError:
+                    pass
+
+            buffer = b''
+            search_pos = 0
+
+            while True:
+                if self._stop_event.is_set():
+                    break
+                try:
+                    chunk = os.read(master, 1024)
+                    if not chunk:
+                        break
+                    buffer += chunk
+                    matches = pattern.findall(buffer)
+                    if matches:
+                        for m in matches:
+                            word_str = m.decode("utf-8", errors="ignore")
+                            raw = word_str.strip('.,!?:;"\'()[]{}')
+                            idx = clean_text.find(raw, search_pos) if raw else -1
+                            if idx < 0 and raw:
+                                idx = clean_text.lower().find(raw.lower(), search_pos)
+                            if idx >= 0:
+                                search_pos = idx + len(raw)
+                            else:
+                                idx = search_pos
+
+                            self._broadcast("word", {
+                                "word": word_str,
+                                "raw_word": raw,
+                                "char_index": idx,
+                                "char_length": len(raw) if raw else len(word_str),
+                                "loop_index": loop_idx,
+                                "total_loops": count
+                            })
+                        buffer = buffer[buffer.rfind(matches[-1]) + len(matches[-1]):]
+                except OSError:
+                    break
+
+            with self._lock:
+                if self._current_master == master:
+                    try:
+                        os.close(master)
+                    except OSError:
+                        pass
+                    self._current_master = None
+
+            if proc:
+                try:
+                    proc.wait(timeout=1.0)
+                except Exception:
+                    pass
+
+            with self._lock:
+                self._current_proc = None
 
             if self._stop_event.is_set():
                 break
 
-            if i < count - 1:
-                time.sleep(0.8)
+            self._broadcast("loop_end", {"loop_index": loop_idx, "total_loops": count})
+
+            if loop_idx < count - 1:
+                t_end = time.time() + 0.8
+                while time.time() < t_end and not self._stop_event.is_set():
+                    time.sleep(0.05)
+
+        self._broadcast("done", {})
 
 siri_speaker = SiriSpeaker()
 
@@ -166,6 +284,39 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps({"speaking": siri_speaker.is_speaking()}).encode('utf-8'))
+            return
+
+        # Siri real-time speech events (Server-Sent Events)
+        if req_name.startswith("api/siri_events"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            q = siri_speaker.add_subscriber()
+            try:
+                # Send initial ping
+                self.wfile.write(b": ping\n\n")
+                self.wfile.flush()
+
+                while True:
+                    try:
+                        ev = q.get(timeout=1.0)
+                        payload = f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode('utf-8')
+                        self.wfile.write(payload)
+                        self.wfile.flush()
+                        if ev.get("type") in ("done", "stop"):
+                            break
+                    except queue.Empty:
+                        # Heartbeat comment to keep connection alive
+                        self.wfile.write(b": ping\n\n")
+                        self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, Exception):
+                pass
+            finally:
+                siri_speaker.remove_subscriber(q)
             return
 
         # Translation proxy API

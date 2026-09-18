@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.7.6
-// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪、智谱AI长难句核心语块一键全选朗读（默认优先原生Siri发音，离线自动降级浏览器发音），以及Siri高保真语音1-3-6-10-15一键连续播放。
+// @version      1.8.0
+// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
 // @match        file:///*
@@ -2190,7 +2190,14 @@
     let lastActiveSelectCleanBtn = null;
     const REPEAT_STEPS = [1, 3, 6, 10, 15];
 
+    let activeSiriEventSource = null;
+
     function stopSiriPlayback() {
+        if (activeSiriEventSource) {
+            try { activeSiriEventSource.close(); } catch (e) {}
+            activeSiriEventSource = null;
+        }
+        clearSpeechHighlights();
         return fetch("http://127.0.0.1:8777/api/siri_speak", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -2414,6 +2421,48 @@
         return { start, end: text.length };
     }
 
+    function applySpeechHighlight(speechMap, offsetInParagraph, localIdx, wordLen, rawWord) {
+        if (!_hasHighlightSupport || !speechMap || !speechMap.charMap.length) return;
+        const globalIdx = offsetInParagraph + localIdx;
+        if (globalIdx < 0 || globalIdx >= speechMap.charMap.length) return;
+
+        let len = wordLen;
+        if (!len || len <= 0) {
+            if (rawWord && rawWord.length > 0) {
+                len = rawWord.length;
+            } else {
+                const sub = speechMap.fullText.slice(globalIdx);
+                const m = sub.match(/^[\w'-]+/);
+                len = m ? m[0].length : 1;
+            }
+        }
+
+        const wordStartIdx = globalIdx;
+        const wordEndIdx = Math.min(globalIdx + len, speechMap.charMap.length);
+        if (wordEndIdx <= wordStartIdx) return;
+
+        const startItem = speechMap.charMap[wordStartIdx];
+        const endItem = speechMap.charMap[wordEndIdx - 1];
+
+        try {
+            const wordRange = document.createRange();
+            wordRange.setStart(startItem.node, startItem.offset);
+            wordRange.setEnd(endItem.node, endItem.offset + 1);
+
+            const sent = findSentenceBoundaries(speechMap.fullText, globalIdx);
+            const sentStartItem = speechMap.charMap[sent.start];
+            const sentEndIdx = Math.min(sent.end - 1, speechMap.charMap.length - 1);
+            const sentEndItem = speechMap.charMap[Math.max(sent.start, sentEndIdx)];
+
+            const sentRange = document.createRange();
+            sentRange.setStart(sentStartItem.node, sentStartItem.offset);
+            sentRange.setEnd(sentEndItem.node, sentEndItem.offset + 1);
+
+            CSS.highlights.set("isa-speak-sentence", new Highlight(sentRange));
+            CSS.highlights.set("isa-speak-word", new Highlight(wordRange));
+        } catch (highlightErr) {}
+    }
+
     function insertParagraphTranslation(targetParagraph, textToTranslate) {
         if (!targetParagraph) return;
 
@@ -2528,15 +2577,83 @@
                 // Debounce timer: 650ms after user stops clicking, auto-play via server!
                 if (selectCleanBtn._debounceTimer) clearTimeout(selectCleanBtn._debounceTimer);
                 selectCleanBtn._debounceTimer = setTimeout(() => {
+                    const speechMap = buildParagraphSpeechMap(targetParagraph);
+                    let offsetInParagraph = 0;
+                    if (speechMap && speechMap.fullText) {
+                        const idx = speechMap.fullText.indexOf(cleanEnglish);
+                        if (idx >= 0) {
+                            offsetInParagraph = idx;
+                        }
+                    }
+
                     startSiriPlayback(cleanEnglish, count)
                         .then(() => {
                             selectCleanBtn._isSiriSpeaking = true;
                             selectCleanBtn.classList.remove("ready");
                             selectCleanBtn.classList.add("speaking");
-                            selectCleanBtn.textContent = `⏹ 停止Siri (${count}次)`;
+                            selectCleanBtn.textContent = count > 1 ? `⏹ 停止Siri (1/${count})` : `⏹ 停止Siri`;
                             selectCleanBtn.title = `正在播放中（共 ${count} 次），点击即可停止`;
 
-                            // Poll for completion to revert button state
+                            // Connect to Siri real-time event stream (SSE) for word tracking
+                            if (activeSiriEventSource) {
+                                try { activeSiriEventSource.close(); } catch (e) {}
+                                activeSiriEventSource = null;
+                            }
+
+                            try {
+                                const es = new EventSource("http://127.0.0.1:8777/api/siri_events");
+                                activeSiriEventSource = es;
+
+                                es.onmessage = (event) => {
+                                    if (!selectCleanBtn._isSiriSpeaking) {
+                                        try { es.close(); } catch (e) {}
+                                        return;
+                                    }
+                                    try {
+                                        const data = JSON.parse(event.data);
+                                        if (data.type === "loop_start") {
+                                            const curr = (data.loop_index || 0) + 1;
+                                            const total = data.total_loops || count;
+                                            selectCleanBtn.textContent = total > 1 ? `⏹ 停止Siri (${curr}/${total})` : `⏹ 停止Siri`;
+                                            clearSpeechHighlights();
+                                        } else if (data.type === "word") {
+                                            if (speechMap && data.char_index >= 0) {
+                                                applySpeechHighlight(
+                                                    speechMap,
+                                                    offsetInParagraph,
+                                                    data.char_index,
+                                                    data.char_length || (data.raw_word ? data.raw_word.length : 0),
+                                                    data.raw_word
+                                                );
+                                            }
+                                        } else if (data.type === "loop_end") {
+                                            // Subtle clear between loops
+                                            clearSpeechHighlights();
+                                        } else if (data.type === "done" || data.type === "stop") {
+                                            clearSpeechHighlights();
+                                            try { es.close(); } catch (e) {}
+                                            if (activeSiriEventSource === es) activeSiriEventSource = null;
+                                            selectCleanBtn._isSiriSpeaking = false;
+                                            selectCleanBtn.classList.remove("speaking");
+                                            selectCleanBtn.classList.remove("ready");
+                                            selectCleanBtn.textContent = "🎧 Siri朗读";
+                                            selectCleanBtn.title = "就绪纯净段落，点击切换次数（1-3-6-10-15）停顿后自动播放 Siri，亦可按 Option+Esc";
+                                            selectCleanBtn._stepIndex = -1;
+                                        }
+                                    } catch (err) {
+                                        console.warn("[ISA] Siri SSE parse error:", err);
+                                    }
+                                };
+
+                                es.onerror = () => {
+                                    try { es.close(); } catch (e) {}
+                                    if (activeSiriEventSource === es) activeSiriEventSource = null;
+                                };
+                            } catch (esErr) {
+                                console.warn("[ISA] EventSource error:", esErr);
+                            }
+
+                            // Fallback polling for completion to revert button state
                             if (selectCleanBtn._pollInterval) clearInterval(selectCleanBtn._pollInterval);
                             selectCleanBtn._pollInterval = setInterval(() => {
                                 checkSiriStatus().then(st => {
@@ -2545,6 +2662,11 @@
                                             clearInterval(selectCleanBtn._pollInterval);
                                             selectCleanBtn._pollInterval = null;
                                         }
+                                        if (activeSiriEventSource) {
+                                            try { activeSiriEventSource.close(); } catch (e) {}
+                                            activeSiriEventSource = null;
+                                        }
+                                        clearSpeechHighlights();
                                         selectCleanBtn._isSiriSpeaking = false;
                                         selectCleanBtn.classList.remove("speaking");
                                         selectCleanBtn.classList.remove("ready");
@@ -2553,7 +2675,7 @@
                                         selectCleanBtn._stepIndex = -1;
                                     }
                                 }).catch(() => {});
-                            }, 500);
+                            }, 600);
                         })
                         .catch(() => {
                             // Fallback to Opt+Esc visual hint if local server is not running
@@ -2641,42 +2763,7 @@
                         utter.onboundary = (bev) => {
                             if (!isSpeaking) return;
                             if (bev.name && bev.name !== "word") return;
-
-                            const localIdx = bev.charIndex;
-                            const globalIdx = offsetInParagraph + localIdx;
-                            if (globalIdx < 0 || globalIdx >= speechMap.charMap.length) return;
-
-                            let wordLen = bev.charLength;
-                            if (!wordLen || wordLen <= 0) {
-                                const sub = textToSpeak.slice(localIdx);
-                                const m = sub.match(/^[\w'-]+/);
-                                wordLen = m ? m[0].length : 1;
-                            }
-
-                            const wordStartIdx = globalIdx;
-                            const wordEndIdx = Math.min(globalIdx + wordLen, speechMap.charMap.length);
-                            if (wordEndIdx <= wordStartIdx) return;
-
-                            const startItem = speechMap.charMap[wordStartIdx];
-                            const endItem = speechMap.charMap[wordEndIdx - 1];
-
-                            try {
-                                const wordRange = document.createRange();
-                                wordRange.setStart(startItem.node, startItem.offset);
-                                wordRange.setEnd(endItem.node, endItem.offset + 1);
-
-                                const sent = findSentenceBoundaries(speechMap.fullText, globalIdx);
-                                const sentStartItem = speechMap.charMap[sent.start];
-                                const sentEndIdx = Math.min(sent.end - 1, speechMap.charMap.length - 1);
-                                const sentEndItem = speechMap.charMap[Math.max(sent.start, sentEndIdx)];
-
-                                const sentRange = document.createRange();
-                                sentRange.setStart(sentStartItem.node, sentStartItem.offset);
-                                sentRange.setEnd(sentEndItem.node, sentEndItem.offset + 1);
-
-                                CSS.highlights.set("isa-speak-sentence", new Highlight(sentRange));
-                                CSS.highlights.set("isa-speak-word", new Highlight(wordRange));
-                            } catch (highlightErr) {}
+                            applySpeechHighlight(speechMap, offsetInParagraph, bev.charIndex, bev.charLength);
                         };
                     }
 
