@@ -315,9 +315,15 @@
         if (!window.speechSynthesis || !text) return;
         try {
             window.speechSynthesis.cancel();
+            if (window.speechSynthesis.paused) {
+                window.speechSynthesis.resume();
+            }
             const utter = new SpeechSynthesisUtterance(text);
             _applyVoice(utter, lang);
             setTimeout(() => {
+                if (window.speechSynthesis.paused) {
+                    window.speechSynthesis.resume();
+                }
                 window.speechSynthesis.speak(utter);
             }, 50);
         } catch (e) { console.warn("[ISA] speakText error:", e); }
@@ -2696,8 +2702,9 @@
 
                         if (finalEnEl) {
                             e.stopPropagation();
-                            stopSpeaking();
-                            const enText = (finalEnEl.innerText || "").trim();
+
+                            // 1. Select the English phrase immediately in the browser
+                            const enText = (finalEnEl.innerText || finalEnEl.textContent || "").trim();
                             const selection = window.getSelection();
                             if (selection) {
                                 selection.removeAllRanges();
@@ -2705,13 +2712,27 @@
                                 range.selectNodeContents(finalEnEl);
                                 selection.addRange(range);
                             }
-                            if (navigator.clipboard && navigator.clipboard.writeText) {
+
+                            // 2. Copy to clipboard
+                            if (navigator.clipboard && navigator.clipboard.writeText && enText) {
                                 navigator.clipboard.writeText(enText).catch(() => {});
                             }
+
+                            // 3. Update speech proxy for Siri Option+Esc
                             const proxy = document.getElementById("isa-speech-proxy");
-                            if (proxy) {
+                            if (proxy && enText) {
                                 proxy.value = enText;
                             }
+
+                            // 4. Reset paragraph speech button and highlights if active
+                            clearSpeechHighlights();
+                            const activeSpeakBtn = transBox.querySelector(".isa-trans-btn.speak.speaking");
+                            if (activeSpeakBtn) {
+                                activeSpeakBtn.classList.remove("speaking");
+                                activeSpeakBtn.textContent = "🔊 朗读英文";
+                            }
+
+                            // 5. Read aloud via browser speech synthesis
                             if (enText) {
                                 speakText(enText, "en-US");
                             }
