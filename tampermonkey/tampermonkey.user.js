@@ -1080,15 +1080,15 @@
             }
             .isa-breakdown-en {
                 cursor: pointer !important;
-                border-bottom: 1px dashed rgba(2, 132, 199, 0.45) !important;
+                border-bottom: none !important;
+                text-decoration: none !important;
                 border-radius: 2px !important;
-                padding: 0 2px !important;
-                transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease !important;
+                padding: 0 1px !important;
+                transition: background-color 0.15s ease, color 0.15s ease !important;
             }
             .isa-breakdown-en:hover {
-                background-color: rgba(2, 132, 199, 0.1) !important;
+                background-color: rgba(2, 132, 199, 0.08) !important;
                 color: #0284c7 !important;
-                border-bottom-color: #0284c7 !important;
             }
             .isa-breakdown-desc {
                 color: #334155 !important;
@@ -2679,7 +2679,7 @@
 
                         html += `
                             <li class="isa-breakdown-item">
-                                <strong class="isa-breakdown-term"><span class="isa-breakdown-en" title="点击选中该英文语块（支持快捷键 Option+Esc 朗读）">${enPart}</span>${zhPart ? `（${zhPart}）` : ""}：</strong><span class="isa-breakdown-desc">${expPart}</span>
+                                <strong class="isa-breakdown-term"><span class="isa-breakdown-en">${enPart}</span>${zhPart ? `（${zhPart}）` : ""}：</strong><span class="isa-breakdown-desc">${expPart}</span>
                             </li>
                         `;
                     });
