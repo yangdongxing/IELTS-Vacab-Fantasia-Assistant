@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.7.0
+// @version      1.7.2
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译与智谱AI长难句核心语块逐项拆解。
 // @author       极客助手
 // @match        *://*/*
@@ -522,11 +522,12 @@
             if (document.querySelector('meta[name="ielts-vocab-stats-page"]')) return true;
             if (document.querySelector('meta[name="ielts-vocab-disable-plugin"]')) return true;
             if (document.getElementById("stats-page-container")) return true;
+            if (document.title && (document.title.includes("打点与学习统计") || document.title.includes("数据管理台"))) return true;
             const loc = window.location;
             if (!loc) return false;
             const path = (loc.pathname || "").toLowerCase();
             const href = (loc.href || "").toLowerCase();
-            return path.endsWith("stats.html") || href.includes("stats.html");
+            return path.endsWith("stats.html") || href.includes("stats.html") || path.endsWith("/stats") || href.includes("/stats");
         } catch (e) {
             return false;
         }
@@ -534,8 +535,8 @@
 
     function trackWordEvent(word, eventType) {
         if (!word) return;
-        // On stats dashboard page, only suppress word marking (selection highlights), allow modal review & practice tracking
-        if (isStatsPage() && eventType === "mark") return;
+        // 统计页面（stats.html）中的任何操作（查词覆层、拼写练习校验等），均不应被打点记录
+        if (isStatsPage()) return;
 
         const stats = loadStats();
         const key = word.toLowerCase().trim();
@@ -637,7 +638,7 @@
         lookupWord: (word) => {
             return lookupWord(word);
         },
-        version: "1.7.1",
+        version: "1.7.2",
         active: true
     };
     if (typeof window !== "undefined" && window !== rootWin) {
