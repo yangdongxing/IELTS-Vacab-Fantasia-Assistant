@@ -2696,6 +2696,8 @@
 
                         if (finalEnEl) {
                             e.stopPropagation();
+                            stopSpeaking();
+                            const enText = (finalEnEl.innerText || "").trim();
                             const selection = window.getSelection();
                             if (selection) {
                                 selection.removeAllRanges();
@@ -2704,11 +2706,14 @@
                                 selection.addRange(range);
                             }
                             if (navigator.clipboard && navigator.clipboard.writeText) {
-                                navigator.clipboard.writeText(finalEnEl.innerText.trim()).catch(() => {});
+                                navigator.clipboard.writeText(enText).catch(() => {});
                             }
                             const proxy = document.getElementById("isa-speech-proxy");
                             if (proxy) {
-                                proxy.value = finalEnEl.innerText.trim();
+                                proxy.value = enText;
+                            }
+                            if (enText) {
+                                speakText(enText, "en-US");
                             }
                         }
                     };
