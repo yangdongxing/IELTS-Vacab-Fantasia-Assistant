@@ -95,7 +95,27 @@ class SiriSpeaker:
             if self._stop_event.is_set():
                 break
 
-            self._broadcast("loop_start", {"loop_index": loop_idx, "total_loops": count})
+            # Speed logic:
+            # 1 time: standard default speed (no -r)
+            # 3 times: 1st loop slow (-r 90), 2nd loop medium (-r 115), 3rd loop standard (no -r)
+            # 6/10/15 times: 1st/2nd/3rd match 3-times speed, 4th and beyond stay at standard speed
+            rate_arg = []
+            speed_desc = "标准速度"
+            if count >= 3:
+                if loop_idx == 0:
+                    rate_arg = ["-r", "90"]
+                    speed_desc = "慢速 (0.8x)"
+                elif loop_idx == 1:
+                    rate_arg = ["-r", "115"]
+                    speed_desc = "中速 (0.9x)"
+                else:
+                    speed_desc = "标准速度 (1.0x)"
+
+            self._broadcast("loop_start", {
+                "loop_index": loop_idx,
+                "total_loops": count,
+                "speed": speed_desc
+            })
 
             master, slave = pty.openpty()
             with self._lock:
@@ -105,8 +125,9 @@ class SiriSpeaker:
             proc = None
             try:
                 # Run say in interactive mode inside PTY to stream spoken words
+                cmd = ["say", "--interactive=bold"] + rate_arg + [clean_text]
                 proc = subprocess.Popen(
-                    ["say", "--interactive=bold", clean_text],
+                    cmd,
                     stdin=slave, stdout=slave, stderr=slave,
                     close_fds=True, env=env
                 )
