@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.7.2
-// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译与智谱AI长难句核心语块逐项拆解。
+// @version      1.7.4
+// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪与智谱AI长难句核心语块一键全选与拆解。
 // @author       极客助手
 // @match        *://*/*
 // @match        file:///*
@@ -1078,8 +1078,32 @@
                 font-weight: 700 !important;
                 color: #0f172a !important;
             }
+            .isa-breakdown-en {
+                cursor: pointer !important;
+                border-bottom: 1px dashed rgba(2, 132, 199, 0.45) !important;
+                border-radius: 2px !important;
+                padding: 0 2px !important;
+                transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease !important;
+            }
+            .isa-breakdown-en:hover {
+                background-color: rgba(2, 132, 199, 0.1) !important;
+                color: #0284c7 !important;
+                border-bottom-color: #0284c7 !important;
+            }
             .isa-breakdown-desc {
                 color: #334155 !important;
+            }
+
+            /* Speech Text-Tracking (CSS Custom Highlight API) */
+            ::highlight(isa-speak-sentence) {
+                background-color: rgba(59, 130, 246, 0.12);
+            }
+            ::highlight(isa-speak-word) {
+                background-color: #fef08a;
+                color: #0f172a;
+                text-decoration: underline;
+                text-decoration-color: #ca8a04;
+                text-decoration-thickness: 2.5px;
             }
 
             /* Fullscreen Memory Modal Overlay Container */
@@ -2263,11 +2287,103 @@
         });
     }
 
+    // ==========================================
+    // Paragraph Speech & CSS Highlight Tracking
+    // ==========================================
+    const _hasHighlightSupport = typeof CSS !== "undefined" && typeof CSS.highlights !== "undefined" && typeof Highlight !== "undefined";
+
+    function clearSpeechHighlights() {
+        if (_hasHighlightSupport) {
+            try {
+                CSS.highlights.delete("isa-speak-word");
+                CSS.highlights.delete("isa-speak-sentence");
+            } catch (e) {}
+        }
+    }
+
+    function buildParagraphSpeechMap(targetEl) {
+        if (!targetEl) return null;
+        const textNodes = [];
+        const walker = document.createTreeWalker(
+            targetEl,
+            NodeFilter.SHOW_TEXT,
+            {
+                acceptNode(node) {
+                    let parent = node.parentElement;
+                    while (parent && parent !== targetEl) {
+                        if (
+                            parent.classList.contains("translation-bubble") ||
+                            parent.classList.contains("isa-paragraph-translation") ||
+                            parent.getAttribute("aria-hidden") === "true" ||
+                            parent.tagName === "SCRIPT" ||
+                            parent.tagName === "STYLE" ||
+                            parent.tagName === "NOSCRIPT"
+                        ) {
+                            return NodeFilter.FILTER_REJECT;
+                        }
+                        parent = parent.parentElement;
+                    }
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            }
+        );
+
+        let currentNode;
+        while ((currentNode = walker.nextNode())) {
+            const val = currentNode.nodeValue;
+            if (val) {
+                textNodes.push({ node: currentNode, text: val });
+            }
+        }
+
+        if (!textNodes.length) return null;
+
+        let fullText = "";
+        const charMap = [];
+        for (const item of textNodes) {
+            const str = item.text;
+            for (let i = 0; i < str.length; i++) {
+                charMap.push({ node: item.node, offset: i });
+            }
+            fullText += str;
+        }
+
+        return { fullText, charMap };
+    }
+
+    function findSentenceBoundaries(text, charIndex) {
+        if (!text) return { start: 0, end: 0 };
+        const abbrevs = /\b(?:Dr|Mr|Mrs|Ms|Prof|Sr|Jr|vs|etc|e\.g|i\.e)\.$/i;
+        let start = 0;
+        const sentenceEndRegex = /[.!?]+(?=[\s"'\u201d\u2019]+[A-Z0-9]|$)/g;
+        let match;
+        let lastEnd = 0;
+        while ((match = sentenceEndRegex.exec(text)) !== null) {
+            const periodIdx = match.index + match[0].length;
+            const subBefore = text.slice(lastEnd, periodIdx);
+            if (abbrevs.test(subBefore.trim())) {
+                continue;
+            }
+            if (periodIdx <= charIndex) {
+                start = periodIdx;
+                while (start < text.length && /\s/.test(text[start])) {
+                    start++;
+                }
+            } else {
+                return { start, end: periodIdx };
+            }
+            lastEnd = periodIdx;
+        }
+        return { start, end: text.length };
+    }
+
     function insertParagraphTranslation(targetParagraph, textToTranslate) {
         if (!targetParagraph) return;
 
         const clean = (textToTranslate || "").trim();
         if (!clean) return;
+
+        clearSpeechHighlights();
 
         let transBox = targetParagraph.nextElementSibling;
         if (!transBox || !transBox.classList.contains("isa-paragraph-translation")) {
@@ -2360,8 +2476,14 @@
             };
 
             let isSpeaking = false;
+            let keepAliveTimer = null;
 
             const stopSpeaking = () => {
+                if (keepAliveTimer) {
+                    clearInterval(keepAliveTimer);
+                    keepAliveTimer = null;
+                }
+                clearSpeechHighlights();
                 if (isSpeaking) {
                     try { window.speechSynthesis.cancel(); } catch (e) {}
                     isSpeaking = false;
@@ -2378,30 +2500,97 @@
                 }
 
                 if (!window.speechSynthesis) return;
-                const currentText = transBox._currentEnglishText || textToTranslate;
-                if (!currentText) return;
+
+                const speechMap = buildParagraphSpeechMap(targetParagraph);
+                const baseText = transBox._currentEnglishText || textToTranslate;
+                let textToSpeak = baseText;
+                let offsetInParagraph = 0;
+
+                if (speechMap && speechMap.fullText) {
+                    const trimmedBase = (baseText || "").trim();
+                    const cleanFull = speechMap.fullText.trim();
+                    if (cleanFull && (!trimmedBase || cleanFull.includes(trimmedBase))) {
+                        if (trimmedBase) {
+                            offsetInParagraph = speechMap.fullText.indexOf(trimmedBase);
+                            if (offsetInParagraph < 0) offsetInParagraph = 0;
+                        }
+                    } else if (cleanFull) {
+                        textToSpeak = speechMap.fullText;
+                        offsetInParagraph = 0;
+                    }
+                }
+
+                if (!textToSpeak) return;
 
                 try {
                     window.speechSynthesis.cancel();
-                    const utter = new SpeechSynthesisUtterance(currentText);
+                    clearSpeechHighlights();
+
+                    const utter = new SpeechSynthesisUtterance(textToSpeak);
                     _applyVoice(utter, "en-US");
 
                     utter.onstart = () => {
                         isSpeaking = true;
                         speakBtn.classList.add("speaking");
                         speakBtn.textContent = "⏹ 停止朗读";
+                        if (keepAliveTimer) clearInterval(keepAliveTimer);
+                        keepAliveTimer = setInterval(() => {
+                            if (window.speechSynthesis && window.speechSynthesis.speaking) {
+                                window.speechSynthesis.pause();
+                                window.speechSynthesis.resume();
+                            }
+                        }, 10000);
                     };
 
+                    if (_hasHighlightSupport && speechMap && speechMap.charMap.length) {
+                        utter.onboundary = (bev) => {
+                            if (!isSpeaking) return;
+                            if (bev.name && bev.name !== "word") return;
+
+                            const localIdx = bev.charIndex;
+                            const globalIdx = offsetInParagraph + localIdx;
+                            if (globalIdx < 0 || globalIdx >= speechMap.charMap.length) return;
+
+                            let wordLen = bev.charLength;
+                            if (!wordLen || wordLen <= 0) {
+                                const sub = textToSpeak.slice(localIdx);
+                                const m = sub.match(/^[\w'-]+/);
+                                wordLen = m ? m[0].length : 1;
+                            }
+
+                            const wordStartIdx = globalIdx;
+                            const wordEndIdx = Math.min(globalIdx + wordLen, speechMap.charMap.length);
+                            if (wordEndIdx <= wordStartIdx) return;
+
+                            const startItem = speechMap.charMap[wordStartIdx];
+                            const endItem = speechMap.charMap[wordEndIdx - 1];
+
+                            try {
+                                const wordRange = document.createRange();
+                                wordRange.setStart(startItem.node, startItem.offset);
+                                wordRange.setEnd(endItem.node, endItem.offset + 1);
+
+                                const sent = findSentenceBoundaries(speechMap.fullText, globalIdx);
+                                const sentStartItem = speechMap.charMap[sent.start];
+                                const sentEndIdx = Math.min(sent.end - 1, speechMap.charMap.length - 1);
+                                const sentEndItem = speechMap.charMap[Math.max(sent.start, sentEndIdx)];
+
+                                const sentRange = document.createRange();
+                                sentRange.setStart(sentStartItem.node, sentStartItem.offset);
+                                sentRange.setEnd(sentEndItem.node, sentEndItem.offset + 1);
+
+                                CSS.highlights.set("isa-speak-sentence", new Highlight(sentRange));
+                                CSS.highlights.set("isa-speak-word", new Highlight(wordRange));
+                            } catch (highlightErr) {}
+                        };
+                    }
+
                     utter.onend = () => {
-                        isSpeaking = false;
-                        speakBtn.classList.remove("speaking");
-                        speakBtn.textContent = "🔊 朗读英文";
+                        stopSpeaking();
                     };
 
                     utter.onerror = () => {
-                        isSpeaking = false;
-                        speakBtn.classList.remove("speaking");
-                        speakBtn.textContent = "🔊 朗读英文";
+                        stopSpeaking();
                     };
 
                     setTimeout(() => {
@@ -2487,15 +2676,10 @@
                         const enPart = (c.en || c.chunk || "").trim();
                         const zhPart = (c.zh || "").trim();
                         const expPart = (c.exp || c.explanation || "").trim();
-                        
-                        let termHtml = enPart;
-                        if (zhPart) {
-                            termHtml += `（${zhPart}）`;
-                        }
 
                         html += `
                             <li class="isa-breakdown-item">
-                                <strong class="isa-breakdown-term">${termHtml}：</strong><span class="isa-breakdown-desc">${expPart}</span>
+                                <strong class="isa-breakdown-term"><span class="isa-breakdown-en" title="点击选中该英文语块（支持快捷键 Option+Esc 朗读）">${enPart}</span>${zhPart ? `（${zhPart}）` : ""}：</strong><span class="isa-breakdown-desc">${expPart}</span>
                             </li>
                         `;
                     });
@@ -2504,6 +2688,30 @@
                     breakdownContentEl.className = "isa-breakdown-content";
                     breakdownContentEl.innerHTML = html;
                     if (breakdownContainerEl) breakdownContainerEl.style.display = "block";
+
+                    breakdownContentEl.onclick = (e) => {
+                        const enEl = e.target.closest(".isa-breakdown-en");
+                        const targetTerm = e.target.closest(".isa-breakdown-term");
+                        const finalEnEl = enEl || (targetTerm ? targetTerm.querySelector(".isa-breakdown-en") : null);
+
+                        if (finalEnEl) {
+                            e.stopPropagation();
+                            const selection = window.getSelection();
+                            if (selection) {
+                                selection.removeAllRanges();
+                                const range = document.createRange();
+                                range.selectNodeContents(finalEnEl);
+                                selection.addRange(range);
+                            }
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                navigator.clipboard.writeText(finalEnEl.innerText.trim()).catch(() => {});
+                            }
+                            const proxy = document.getElementById("isa-speech-proxy");
+                            if (proxy) {
+                                proxy.value = finalEnEl.innerText.trim();
+                            }
+                        }
+                    };
                 })
                 .catch(err => {
                     console.warn("[ISA] Breakdown error:", err);
@@ -2583,7 +2791,8 @@
         if (currentTriggerBtn && currentTriggerBtn.contains(event.target)) {
             return;
         }
-        if (isMemoryModalOpen()) {
+        if (isMemoryModalOpen() || event.target.closest(".isa-paragraph-translation") || event.target.closest("#geek-memory-modal")) {
+            removeTriggerBtn();
             return;
         }
 
