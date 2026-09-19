@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.8.4
+// @version      1.8.5
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -374,20 +374,23 @@
         } catch (e) { console.warn("[ISA] speakBilingual error:", e); }
     }
 
-    let modalExampleSiriEs = null;
+    let modalSiriEs = null;
 
-    function stopModalExampleSpeech() {
-        if (modalExampleSiriEs) {
-            try { modalExampleSiriEs.close(); } catch (e) {}
-            modalExampleSiriEs = null;
+    function stopModalSpeech() {
+        if (modalSiriEs) {
+            try { modalSiriEs.close(); } catch (e) {}
+            modalSiriEs = null;
         }
         if (memoryModalRefs) {
+            if (memoryModalRefs.word) memoryModalRefs.word.classList.remove("is-speaking");
+            if (memoryModalRefs.translation) memoryModalRefs.translation.classList.remove("is-speaking");
             if (memoryModalRefs.exampleEnglish) memoryModalRefs.exampleEnglish.classList.remove("is-speaking");
             if (memoryModalRefs.exampleChinese) memoryModalRefs.exampleChinese.classList.remove("is-speaking");
         }
     }
+    const stopModalExampleSpeech = stopModalSpeech;
 
-    function speakExampleWithSiriPriority(enText, zhText) {
+    function speakBilingualWithSiriPriority(enText, zhText, targetType = "word") {
         if (!enText && !zhText) return;
 
         // 1. Cancel browser speech & any previous Siri session
@@ -402,49 +405,43 @@
             proxy.value = enText;
         }
 
+        const isWord = targetType === "word";
+        const enEl = isWord ? (memoryModalRefs && memoryModalRefs.word) : (memoryModalRefs && memoryModalRefs.exampleEnglish);
+        const zhEl = isWord ? (memoryModalRefs && memoryModalRefs.translation) : (memoryModalRefs && memoryModalRefs.exampleChinese);
+
         // 3. Fallback or direct Chinese speech if no English
         if (!enText) {
             if (zhText && isMemoryModalOpen()) {
-                if (memoryModalRefs && memoryModalRefs.exampleChinese) {
-                    memoryModalRefs.exampleChinese.classList.add("is-speaking");
-                }
+                if (zhEl) zhEl.classList.add("is-speaking");
                 speakText(zhText, "zh-CN", () => {
-                    if (memoryModalRefs && memoryModalRefs.exampleChinese) {
-                        memoryModalRefs.exampleChinese.classList.remove("is-speaking");
-                    }
+                    if (zhEl) zhEl.classList.remove("is-speaking");
                 });
             }
             return;
         }
 
-        if (memoryModalRefs && memoryModalRefs.exampleEnglish) {
-            memoryModalRefs.exampleEnglish.classList.add("is-speaking");
-        }
+        if (enEl) enEl.classList.add("is-speaking");
 
         // 4. Request native Siri playback via local server
         startSiriPlayback(enText, 1)
             .then(() => {
-                if (modalExampleSiriEs) {
-                    try { modalExampleSiriEs.close(); } catch (e) {}
-                    modalExampleSiriEs = null;
+                if (modalSiriEs) {
+                    try { modalSiriEs.close(); } catch (e) {}
+                    modalSiriEs = null;
                 }
                 try {
                     const es = new EventSource("http://127.0.0.1:8777/api/siri_events");
-                    modalExampleSiriEs = es;
+                    modalSiriEs = es;
 
                     es.onmessage = (event) => {
                         try {
                             const data = JSON.parse(event.data);
                             if (data.type === "done" || data.type === "stop") {
-                                stopModalExampleSpeech();
+                                stopModalSpeech();
                                 if (data.type === "done" && isMemoryModalOpen() && zhText) {
-                                    if (memoryModalRefs && memoryModalRefs.exampleChinese) {
-                                        memoryModalRefs.exampleChinese.classList.add("is-speaking");
-                                    }
+                                    if (zhEl) zhEl.classList.add("is-speaking");
                                     speakText(zhText, "zh-CN", () => {
-                                        if (memoryModalRefs && memoryModalRefs.exampleChinese) {
-                                            memoryModalRefs.exampleChinese.classList.remove("is-speaking");
-                                        }
+                                        if (zhEl) zhEl.classList.remove("is-speaking");
                                     });
                                 }
                             }
@@ -454,7 +451,7 @@
                     };
 
                     es.onerror = () => {
-                        stopModalExampleSpeech();
+                        stopModalSpeech();
                     };
                 } catch (e) {
                     console.warn("[ISA] Failed to open SSE for modal Siri:", e);
@@ -462,9 +459,13 @@
             })
             .catch(() => {
                 // 5. Fallback to browser speech if server is offline or fails
-                stopModalExampleSpeech();
+                stopModalSpeech();
                 speakBilingualExample(enText, zhText);
             });
+    }
+
+    function speakExampleWithSiriPriority(enText, zhText) {
+        return speakBilingualWithSiriPriority(enText, zhText, "example");
     }
 
     const POS_SPEECH_MAP = {
@@ -744,7 +745,7 @@
         lookupWord: (word) => {
             return lookupWord(word);
         },
-        version: "1.8.4",
+        version: "1.8.5",
         active: true
     };
     if (typeof window !== "undefined" && window !== rootWin) {
@@ -1477,6 +1478,11 @@
                         text-shadow 420ms ease-out;
                     cursor: pointer;
                 }
+                .geek-memory-word:hover,
+                .geek-memory-word.is-speaking {
+                    color: #bae6fd;
+                    text-shadow: 0 0 16px rgba(125, 211, 252, 0.45);
+                }
                 .geek-memory-header.is-memorized .geek-memory-word {
                     color: #34d399;
                     text-shadow: 0 0 18px rgba(52, 211, 153, 0.38);
@@ -1639,7 +1645,7 @@
               <div class="geek-memory-card" role="dialog" aria-modal="true">
                 <div class="geek-memory-progress" id="geek-memory-progress" hidden></div>
                 <div class="geek-memory-header" id="geek-memory-header">
-                  <h2 class="geek-memory-word" id="geek-memory-word" title="点击朗读单词"></h2>
+                  <h2 class="geek-memory-word" id="geek-memory-word" title="点击朗读单词（优先 macOS Siri 高保真语音）"></h2>
                   <div class="geek-memory-translation" id="geek-memory-translation"></div>
                 </div>
                 <img class="geek-memory-image" id="geek-memory-image" alt="" draggable="false">
@@ -1680,18 +1686,16 @@
         });
 
         memoryModalRefs.word.addEventListener("click", () => {
-            stopSiriPlayback();
-            stopModalExampleSpeech();
             if (currentMemoryData) {
                 const cleanZh = formatChineseDefinitionForSpeech(currentMemoryData.d);
-                speakBilingualExample(currentMemoryData.w, cleanZh);
+                speakBilingualWithSiriPriority(currentMemoryData.w, cleanZh, "word");
             }
             requestAnimationFrame(focusMemoryAnswer);
         });
 
         memoryModalRefs.exampleEnglish.addEventListener("click", () => {
             if (currentMemoryData && currentMemoryData.sp) {
-                speakExampleWithSiriPriority(currentMemoryData.sp.en || "", currentMemoryData.sp.zh || "");
+                speakBilingualWithSiriPriority(currentMemoryData.sp.en || "", currentMemoryData.sp.zh || "", "example");
             }
             requestAnimationFrame(focusMemoryAnswer);
         });
@@ -1805,7 +1809,7 @@
 
         if (targets.includes(typed)) {
             stopSiriPlayback();
-            stopModalExampleSpeech();
+            stopModalSpeech();
             input.classList.add("is-correct");
             if (!hasTrackedCurrentSuccess) {
                 hasTrackedCurrentSuccess = true;
@@ -1815,6 +1819,7 @@
             const textToSpeak = (typed === focusTarget && currentMemoryData.sp && currentMemoryData.sp.focus) 
                 ? currentMemoryData.sp.focus 
                 : currentMemoryData.w;
+            // Immediate zero-latency feedback: explicitly uses browser native speech synthesis
             speakText(textToSpeak);
 
             const hasLongerCandidate = targets.some(target => target.length > typed.length && target.startsWith(typed));
@@ -1961,9 +1966,9 @@
             } catch (e) {}
         }
 
-        // Auto-play English word + Chinese definition (including part of speech) on modal open
+        // Auto-play English word (Siri priority) + Chinese definition on modal open
         const cleanZh = formatChineseDefinitionForSpeech(entry.d);
-        speakBilingualExample(entry.w, cleanZh);
+        speakBilingualWithSiriPriority(entry.w, cleanZh, "word");
 
         // Preload next word in background
         const nextPreview = getNextItemToPractice();
@@ -1975,7 +1980,7 @@
     function closeMemoryModal() {
         clearTimeout(autoCloseTimer);
         stopSiriPlayback();
-        stopModalExampleSpeech();
+        stopModalSpeech();
         if (window.speechSynthesis) {
             try { window.speechSynthesis.cancel(); } catch (e) {}
         }
@@ -2351,7 +2356,7 @@
             try { activeSiriEventSource.close(); } catch (e) {}
             activeSiriEventSource = null;
         }
-        stopModalExampleSpeech();
+        stopModalSpeech();
         clearSpeechHighlights();
         return fetch("http://127.0.0.1:8777/api/siri_speak", {
             method: "POST",
