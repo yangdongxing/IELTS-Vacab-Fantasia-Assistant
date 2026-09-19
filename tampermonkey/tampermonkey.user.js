@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.8.5
+// @version      1.8.6
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -745,7 +745,7 @@
         lookupWord: (word) => {
             return lookupWord(word);
         },
-        version: "1.8.5",
+        version: "1.8.6",
         active: true
     };
     if (typeof window !== "undefined" && window !== rootWin) {
@@ -2716,13 +2716,11 @@
                     speechProxy.id = "isa-speech-proxy";
                     speechProxy.setAttribute("readonly", "true");
                     speechProxy.setAttribute("tabindex", "-1");
-                    speechProxy.style.cssText = "position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; border: none; padding: 0; margin: 0; z-index: -9999;";
+                    speechProxy.style.cssText = "position: fixed; left: -9999px; top: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: none; padding: 0; margin: 0; z-index: -9999;";
                     document.body.appendChild(speechProxy);
                 }
 
                 speechProxy.value = repeatedText;
-                speechProxy.focus();
-                speechProxy.select();
 
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(repeatedText).catch(() => {});
