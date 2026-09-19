@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Local Image & Telemetry Server for IELTS Vocab Fantasia Assistant
+Local Service for IELTS Vocab Fantasia Assistant
 Serves on http://127.0.0.1:8777/ with:
-- Static image streaming (auto-discovers images directory)
-- Dedicated stats page & data persistence (data/stats.json)
-- Google Translate proxy (/api/translate)
-- Full CORS support (Access-Control-Allow-Origin: *)
-- Case-insensitive filename matching (e.g. travel.jpg -> Travel.jpg)
+- macOS Siri High-Fidelity Speech Engine & Real-Time Word Tracking (/api/siri_speak, /api/siri_events)
+- Dedicated Stats Dashboard & Local Data Persistence (/stats, /api/stats -> data/stats.json)
+- Translation Fallback Proxy (/api/translate)
+- Full CORS Support (Access-Control-Allow-Origin: *)
 """
 import json
 import os
@@ -236,17 +235,6 @@ siri_speaker = SiriSpeaker()
 
 PROJECT_DIR = Path(__file__).resolve().parent
 
-# ---- Image directory discovery (checked in priority order) ----
-_IMAGE_CANDIDATES = [
-    PROJECT_DIR.parent / "IELTS-Vacab-Fantasia-Images" / "images",
-    PROJECT_DIR.parent / "IELTS-Vacab-Fantasia" / "assets" / "images",
-]
-IMAGES_DIR = None
-for _candidate in _IMAGE_CANDIDATES:
-    if _candidate.exists():
-        IMAGES_DIR = _candidate
-        break
-
 STATS_FILE = PROJECT_DIR / "data" / "stats.json"
 PORT = 8777
 
@@ -277,14 +265,6 @@ def sanitize_stats_data(data):
         }
     return data
 
-IMAGE_INDEX = {}
-if IMAGES_DIR and IMAGES_DIR.exists():
-    for fn in os.listdir(IMAGES_DIR):
-        IMAGE_INDEX[fn.lower()] = fn
-        stem = Path(fn).stem.lower()
-        if stem not in IMAGE_INDEX:
-            IMAGE_INDEX[stem] = fn
-
 class IELTSRequestHandler(BaseHTTPRequestHandler):
     def handle(self):
         try:
@@ -306,7 +286,7 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            self.wfile.write(f"IELTS Assistant Server running ({len(IMAGE_INDEX)} indexed images)".encode('utf-8'))
+            self.wfile.write(b"IELTS Vocab Fantasia Assistant Service running (Siri Audio Relay & Stats Sync)")
             return
 
         # Dedicated stats API
@@ -431,29 +411,6 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(stats_html.read_bytes())
                 return
 
-        # Static Images
-        if IMAGES_DIR:
-            clean_lower = req_name.lower()
-            target_file = None
-            if clean_lower in IMAGE_INDEX:
-                target_file = IMAGES_DIR / IMAGE_INDEX[clean_lower]
-            elif (clean_lower + '.jpg') in IMAGE_INDEX:
-                target_file = IMAGES_DIR / IMAGE_INDEX[clean_lower + '.jpg']
-
-            if target_file and target_file.is_file():
-                try:
-                    data = target_file.read_bytes()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "image/jpeg")
-                    self.send_header("Content-Length", str(len(data)))
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("Cache-Control", "public, max-age=86400")
-                    self.end_headers()
-                    self.wfile.write(data)
-                    return
-                except Exception:
-                    pass
-
         self.send_response(404)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
@@ -517,32 +474,6 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
-    def do_HEAD(self):
-        if not IMAGES_DIR:
-            self.send_response(404)
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            return
-        req_name = urllib.parse.unquote(self.path.split('?', 1)[0].split('#', 1)[0].lstrip('/'))
-        clean_lower = req_name.lower()
-        target_file = None
-        if clean_lower in IMAGE_INDEX:
-            target_file = IMAGES_DIR / IMAGE_INDEX[clean_lower]
-        elif (clean_lower + '.jpg') in IMAGE_INDEX:
-            target_file = IMAGES_DIR / IMAGE_INDEX[clean_lower + '.jpg']
-
-        if target_file and target_file.is_file():
-            self.send_response(200)
-            self.send_header("Content-Type", "image/jpeg")
-            self.send_header("Content-Length", str(target_file.stat().st_size))
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Cache-Control", "public, max-age=86400")
-            self.end_headers()
-        else:
-            self.send_response(404)
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -556,13 +487,12 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
 def run_server(port=PORT):
     server_address = ('', port)
     httpd = QuietThreadingHTTPServer(server_address, IELTSRequestHandler)
-    img_info = f"{len(IMAGE_INDEX)} indexed images" if IMAGES_DIR else "no local images (CDN only)"
     print(f"============================================================")
-    print(f"🖼️  IELTS Vocab Fantasia Assistant Server running at:")
-    print(f"   👉 Images API: http://127.0.0.1:{port}/  ({img_info})")
-    print(f"   📊 Stats Page: http://127.0.0.1:{port}/stats")
-    print(f"   💾 Stats Sync: {STATS_FILE}")
-    print(f"   🌐 Full CORS enabled for all webpages")
+    print(f"🚀 IELTS Vocab Fantasia 本地核心服务已就绪 (Port {port}):")
+    print(f"   🍎 Siri 高保真语音引擎:  http://127.0.0.1:{port}/api/siri_speak")
+    print(f"   📊 学习统计数据大屏:    http://127.0.0.1:{port}/stats")
+    print(f"   💾 本地打点数据归档:    {STATS_FILE}")
+    print(f"   🌐 全域 CORS 通信支持:  已启用 (各大网页划词无缝交互)")
     print(f"============================================================")
     try:
         httpd.serve_forever()
