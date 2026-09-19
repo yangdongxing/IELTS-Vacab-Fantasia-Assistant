@@ -22,8 +22,19 @@ import queue
 import struct
 import fcntl
 import termios
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        exc_type, exc_val, _ = sys.exc_info()
+        if exc_type in (ConnectionResetError, BrokenPipeError):
+            return
+        if isinstance(exc_val, OSError) and getattr(exc_val, "errno", None) in (54, 32, 104):
+            return
+        super().handle_error(request, client_address)
 
 class SiriSpeaker:
     def __init__(self):
@@ -275,6 +286,17 @@ if IMAGES_DIR and IMAGES_DIR.exists():
             IMAGE_INDEX[stem] = fn
 
 class IELTSRequestHandler(BaseHTTPRequestHandler):
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionResetError, BrokenPipeError):
+            pass
+        except OSError as e:
+            if getattr(e, "errno", None) in (54, 32, 104):
+                pass
+            else:
+                raise
+
     def do_GET(self):
         req_path = self.path.split('?', 1)[0].split('#', 1)[0].lstrip('/')
         req_name = urllib.parse.unquote(req_path)
@@ -533,7 +555,7 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
 
 def run_server(port=PORT):
     server_address = ('', port)
-    httpd = HTTPServer(server_address, IELTSRequestHandler)
+    httpd = QuietThreadingHTTPServer(server_address, IELTSRequestHandler)
     img_info = f"{len(IMAGE_INDEX)} indexed images" if IMAGES_DIR else "no local images (CDN only)"
     print(f"============================================================")
     print(f"🖼️  IELTS Vocab Fantasia Assistant Server running at:")
