@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.8.6
+// @version      1.8.7
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -468,6 +468,71 @@
         return speakBilingualWithSiriPriority(enText, zhText, "example");
     }
 
+    function speakWithSiriPriority(text, onComplete = null) {
+        if (!text) {
+            if (typeof onComplete === "function") onComplete();
+            return;
+        }
+
+        // 1. Cancel browser speech & any previous Siri session
+        if (window.speechSynthesis) {
+            try { window.speechSynthesis.cancel(); } catch (e) {}
+        }
+        stopSiriPlayback();
+
+        // 2. Update speech proxy for Siri Option+Esc
+        const proxy = document.getElementById("isa-speech-proxy");
+        if (proxy) {
+            proxy.value = text;
+        }
+
+        let completed = false;
+        const triggerComplete = () => {
+            if (completed) return;
+            completed = true;
+            if (modalSiriEs) {
+                try { modalSiriEs.close(); } catch (e) {}
+                modalSiriEs = null;
+            }
+            if (typeof onComplete === "function") onComplete();
+        };
+
+        // 3. Request native Siri playback via local server
+        startSiriPlayback(text, 1)
+            .then(() => {
+                if (modalSiriEs) {
+                    try { modalSiriEs.close(); } catch (e) {}
+                    modalSiriEs = null;
+                }
+                try {
+                    const es = new EventSource("http://127.0.0.1:8777/api/siri_events");
+                    modalSiriEs = es;
+
+                    es.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            if (data.type === "done" || data.type === "stop") {
+                                triggerComplete();
+                            }
+                        } catch (err) {
+                            console.warn("[ISA] Siri SSE parse error:", err);
+                        }
+                    };
+
+                    es.onerror = () => {
+                        triggerComplete();
+                    };
+                } catch (e) {
+                    console.warn("[ISA] Failed to open SSE for Siri:", e);
+                    triggerComplete();
+                }
+            })
+            .catch(() => {
+                // 4. Fallback to browser speech if server is offline or fails
+                speakText(text, "en-US", triggerComplete);
+            });
+    }
+
     const POS_SPEECH_MAP = {
         n: "名词",
         v: "动词",
@@ -745,7 +810,7 @@
         lookupWord: (word) => {
             return lookupWord(word);
         },
-        version: "1.8.6",
+        version: "1.8.7",
         active: true
     };
     if (typeof window !== "undefined" && window !== rootWin) {
@@ -1819,8 +1884,6 @@
             const textToSpeak = (typed === focusTarget && currentMemoryData.sp && currentMemoryData.sp.focus) 
                 ? currentMemoryData.sp.focus 
                 : currentMemoryData.w;
-            // Immediate zero-latency feedback: explicitly uses browser native speech synthesis
-            speakText(textToSpeak);
 
             const hasLongerCandidate = targets.some(target => target.length > typed.length && target.startsWith(typed));
             if (!hasLongerCandidate) {
@@ -1829,22 +1892,45 @@
 
             const nextItem = getNextItemToPractice();
             if (nextItem) {
-                // Immediately preload the next word's image during the 2.2s transition period!
+                // Immediately preload the next word's image while current word is being spoken
                 preloadWordImage(nextItem.entry.w);
-                // Auto-advance to the next word in the same paragraph / table after 2.2s (2200ms)
-                autoCloseTimer = setTimeout(() => {
-                    openMemoryModal(nextItem.entry, nextItem.mark);
-                }, 2200);
-            } else {
-                if (isStatsPage() && memoryModalRefs && memoryModalRefs.progress) {
-                    const total = Math.min(STATS_MAX_PRACTICE_WORDS, Math.max(1, document.querySelectorAll("#table-body .word-text").length));
-                    memoryModalRefs.progress.textContent = `${total} / ${total} 🎉 本组完成`;
-                    memoryModalRefs.progress.classList.add("is-completed");
-                }
-                autoCloseTimer = setTimeout(() => {
-                    closeMemoryModal();
-                }, 2200);
             }
+
+            let hasAdvanced = false;
+            const advanceNext = () => {
+                if (hasAdvanced || !isMemoryModalOpen()) return;
+                hasAdvanced = true;
+                clearTimeout(autoCloseTimer);
+                stopSiriPlayback();
+                stopModalSpeech();
+                if (nextItem) {
+                    openMemoryModal(nextItem.entry, nextItem.mark);
+                } else {
+                    if (isStatsPage() && memoryModalRefs && memoryModalRefs.progress) {
+                        const total = Math.min(STATS_MAX_PRACTICE_WORDS, Math.max(1, document.querySelectorAll("#table-body .word-text").length));
+                        memoryModalRefs.progress.textContent = `${total} / ${total} 🎉 本组完成`;
+                        memoryModalRefs.progress.classList.add("is-completed");
+                    }
+                    closeMemoryModal();
+                }
+            };
+
+            // Audio-driven auto-advance:
+            // When speech finishes (prioritizing Siri, falling back to browser voice),
+            // wait a comfortable buffer (350ms) then advance automatically.
+            const onSpeechCompleted = () => {
+                if (hasAdvanced || !isMemoryModalOpen()) return;
+                clearTimeout(autoCloseTimer);
+                autoCloseTimer = setTimeout(advanceNext, 350);
+            };
+
+            // Fallback safety guard: advance anyway if audio event drops or hangs (e.g. 2.8s)
+            const fallbackMaxTime = Math.max(2600, (textToSpeak || "").length * 140 + 1200);
+            clearTimeout(autoCloseTimer);
+            autoCloseTimer = setTimeout(advanceNext, fallbackMaxTime);
+
+            // Read aloud validated word/collocation with Siri priority, advancing upon speech completion
+            speakWithSiriPriority(textToSpeak, onSpeechCompleted);
         } else if (!targets.some(target => target.startsWith(typed))) {
             input.classList.add("is-wrong");
         }
