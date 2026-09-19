@@ -1386,11 +1386,11 @@
                 display: inline-flex !important;
                 align-items: center !important;
                 justify-content: center !important;
-                width: 17px !important;
-                height: 17px !important;
-                margin: 0 3px 0 4px !important;
+                width: 16px !important;
+                height: 16px !important;
+                margin: 0 2px 0 3px !important;
                 padding: 0 !important;
-                vertical-align: middle !important;
+                vertical-align: -1.5px !important;
                 background: rgba(2, 132, 199, 0.08) !important;
                 border: 1px solid rgba(2, 132, 199, 0.28) !important;
                 border-radius: 4px !important;
