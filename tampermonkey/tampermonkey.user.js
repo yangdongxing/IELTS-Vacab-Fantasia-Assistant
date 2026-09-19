@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.9.3
+// @version      1.9.4
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -918,7 +918,7 @@
         lookupWord: (word) => {
             return lookupWord(word);
         },
-        version: "1.9.3",
+        version: "1.9.4",
         active: true
     };
     if (typeof window !== "undefined" && window !== rootWin) {
@@ -1381,6 +1381,83 @@
             }
             .isa-breakdown-desc {
                 color: #334155 !important;
+            }
+            .isa-breakdown-sub-btn {
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                width: 17px !important;
+                height: 17px !important;
+                margin: 0 3px 0 4px !important;
+                padding: 0 !important;
+                vertical-align: middle !important;
+                background: rgba(2, 132, 199, 0.08) !important;
+                border: 1px solid rgba(2, 132, 199, 0.28) !important;
+                border-radius: 4px !important;
+                color: #0284c7 !important;
+                cursor: pointer !important;
+                outline: none !important;
+                transition: all 0.15s ease !important;
+                line-height: 1 !important;
+            }
+            .isa-breakdown-sub-btn:hover {
+                background: #0284c7 !important;
+                border-color: #0284c7 !important;
+                color: #ffffff !important;
+                transform: scale(1.08) !important;
+            }
+            .isa-breakdown-sub-btn.is-active {
+                background: #0284c7 !important;
+                border-color: #0284c7 !important;
+                color: #ffffff !important;
+            }
+            .isa-breakdown-sub-btn.is-loading {
+                opacity: 0.75 !important;
+                cursor: wait !important;
+                pointer-events: none !important;
+            }
+            @keyframes isa-spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            .isa-spin {
+                animation: isa-spin 0.8s linear infinite !important;
+            }
+            .isa-breakdown-sub-container {
+                margin: 6px 0 2px 8px !important;
+                padding: 6px 10px 6px 12px !important;
+                background: rgba(241, 245, 249, 0.75) !important;
+                border-left: 2.5px solid #38bdf8 !important;
+                border-radius: 0 6px 6px 0 !important;
+            }
+            .isa-breakdown-sub-list {
+                list-style: circle !important;
+                padding-left: 16px !important;
+                margin: 0 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 5px !important;
+            }
+            .isa-breakdown-sub-item {
+                color: #475569 !important;
+                font-size: 12.5px !important;
+                line-height: 1.55 !important;
+            }
+            .isa-breakdown-sub-loading {
+                font-size: 12px !important;
+                color: #0284c7 !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 6px !important;
+            }
+            .isa-breakdown-sub-error {
+                font-size: 12px !important;
+                color: #ef4444 !important;
+                cursor: pointer !important;
+            }
+            .isa-breakdown-sub-empty {
+                font-size: 12px !important;
+                color: #94a3b8 !important;
             }
 
             /* Speech Text-Tracking (CSS Custom Highlight API) */
@@ -2710,6 +2787,99 @@
         });
     }
 
+    function analyzeSubChunk(text) {
+        return new Promise((resolve, reject) => {
+            const apiKey = getZhipuApiKey();
+            if (!apiKey) {
+                return reject(new Error("未配置智谱 API Key"));
+            }
+
+            const cleanText = (text || "").trim();
+            if (!cleanText) {
+                return reject(new Error("分析语块为空"));
+            }
+
+            const payload = {
+                model: "glm-4-flash",
+                messages: [
+                    {
+                        role: "system",
+                        content: "你是英语长难句与深度短语解构专家。请将输入的英文短语/语块进一步深入解构为2-4个核心词汇搭配或最小语法单元，并用简明中文解释词义与语法作用。请直接以JSON数组输出：\n[\n  {\"en\": \"核心子语块/词组\", \"zh\": \"中文词义\", \"exp\": \"语法成分/用法说明\"}\n]\n不要包含```json标记或多余闲聊，只输出JSON数组。"
+                    },
+                    {
+                        role: "user",
+                        content: cleanText
+                    }
+                ],
+                max_tokens: 450,
+                temperature: 0.1
+            };
+
+            const url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+            const reqData = JSON.stringify(payload);
+
+            const handleSuccess = (respText) => {
+                try {
+                    const data = JSON.parse(respText);
+                    const rawContent = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+                    if (!rawContent) {
+                        return reject(new Error("模型未返回内容"));
+                    }
+                    const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+                    const parsed = JSON.parse(cleanJsonStr);
+                    const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
+                    resolve(items);
+                } catch (e) {
+                    reject(e);
+                }
+            };
+
+            if (typeof GM_xmlhttpRequest === "function") {
+                GM_xmlhttpRequest({
+                    method: "POST",
+                    url: url,
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer " + apiKey
+                    },
+                    data: reqData,
+                    timeout: 30000,
+                    onload: (res) => {
+                        if (res.status >= 200 && res.status < 300) {
+                            handleSuccess(res.responseText);
+                        } else {
+                            reject(new Error("API 请求失败: " + res.status));
+                        }
+                    },
+                    ontimeout: () => reject(new Error("请求超时")),
+                    onerror: (err) => reject(err)
+                });
+            } else {
+                fetch(url, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer " + apiKey
+                    },
+                    body: reqData
+                })
+                    .then(r => r.text())
+                    .then(handleSuccess)
+                    .catch(reject);
+            }
+        });
+    }
+
+    function escapeBreakdownHtml(str) {
+        if (!str) return "";
+        return String(str)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
     // ==========================================
     // Paragraph Speech & CSS Highlight Tracking
     // ==========================================
@@ -3061,15 +3231,19 @@
                         return;
                     }
 
+                    const SUB_ICON_SVG = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="18" r="3"></circle><path d="M6 9v3a3 3 0 0 0 3 3h6"></path></svg>`;
+
                     let html = `<ul class="isa-breakdown-list">`;
                     res.forEach(c => {
                         const enPart = (c.en || c.chunk || "").trim();
                         const zhPart = (c.zh || "").trim();
                         const expPart = (c.exp || c.explanation || "").trim();
+                        const subBtnHtml = `<button type="button" class="isa-breakdown-sub-btn" title="进一步解构此语块" data-en="${escapeBreakdownHtml(enPart)}">${SUB_ICON_SVG}</button>`;
 
                         html += `
                             <li class="isa-breakdown-item">
-                                <strong class="isa-breakdown-term"><span class="isa-breakdown-en">${enPart}</span>${zhPart ? `（${zhPart}）` : ""}：</strong><span class="isa-breakdown-desc">${expPart}</span>
+                                <strong class="isa-breakdown-term"><span class="isa-breakdown-en" title="点击朗读">${escapeBreakdownHtml(enPart)}</span>${zhPart ? `（${escapeBreakdownHtml(zhPart)}）` : ""}${subBtnHtml}：</strong><span class="isa-breakdown-desc">${escapeBreakdownHtml(expPart)}</span>
+                                <div class="isa-breakdown-sub-container" style="display: none;"></div>
                             </li>
                         `;
                     });
@@ -3079,7 +3253,85 @@
                     breakdownContentEl.innerHTML = html;
                     if (breakdownContainerEl) breakdownContainerEl.style.display = "block";
 
+                    function handleSubBreakdownClick(btn, itemLi) {
+                        const enText = btn.getAttribute("data-en") || "";
+                        let subContainer = itemLi.querySelector(".isa-breakdown-sub-container");
+                        if (!subContainer) {
+                            subContainer = document.createElement("div");
+                            subContainer.className = "isa-breakdown-sub-container";
+                            itemLi.appendChild(subContainer);
+                        }
+
+                        if (subContainer._hasLoaded) {
+                            if (subContainer.style.display === "none") {
+                                subContainer.style.display = "block";
+                                btn.classList.add("is-active");
+                                btn.title = "收起解构";
+                            } else {
+                                subContainer.style.display = "none";
+                                btn.classList.remove("is-active");
+                                btn.title = "进一步解构此语块";
+                            }
+                            return;
+                        }
+
+                        btn.classList.add("is-loading");
+                        btn.innerHTML = `<svg class="isa-spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v4m0 12v4m-7-7H2m20 0h-4M4.9 4.9l2.8 2.8m8.6 8.6 2.8 2.8M4.9 19.1l2.8-2.8m8.6-8.6 2.8-2.8"/></svg>`;
+                        subContainer.style.display = "block";
+                        subContainer.innerHTML = `<div class="isa-breakdown-sub-loading"><svg class="isa-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v4m0 12v4m-7-7H2m20 0h-4M4.9 4.9l2.8 2.8m8.6 8.6 2.8 2.8M4.9 19.1l2.8-2.8m8.6-8.6 2.8-2.8"/></svg> 正在深度解构「${escapeBreakdownHtml(enText)}」...</div>`;
+
+                        analyzeSubChunk(enText)
+                            .then(subItems => {
+                                btn.classList.remove("is-loading");
+                                btn.innerHTML = SUB_ICON_SVG;
+
+                                if (!subItems || !Array.isArray(subItems) || subItems.length === 0) {
+                                    subContainer.innerHTML = `<div class="isa-breakdown-sub-empty">未拆解出更细粒度语块</div>`;
+                                    return;
+                                }
+
+                                subContainer._hasLoaded = true;
+                                btn.classList.add("is-active");
+                                btn.title = "收起解构";
+
+                                let subHtml = `<ul class="isa-breakdown-sub-list">`;
+                                subItems.forEach(item => {
+                                    const subEn = (item.en || item.chunk || "").trim();
+                                    const subZh = (item.zh || "").trim();
+                                    const subExp = (item.exp || item.explanation || "").trim();
+                                    subHtml += `
+                                        <li class="isa-breakdown-sub-item">
+                                            <strong class="isa-breakdown-term"><span class="isa-breakdown-en" title="点击朗读">${escapeBreakdownHtml(subEn)}</span>${subZh ? `（${escapeBreakdownHtml(subZh)}）` : ""}：</strong><span class="isa-breakdown-desc">${escapeBreakdownHtml(subExp)}</span>
+                                        </li>
+                                    `;
+                                });
+                                subHtml += `</ul>`;
+                                subContainer.innerHTML = subHtml;
+                            })
+                            .catch(err => {
+                                btn.classList.remove("is-loading");
+                                btn.innerHTML = SUB_ICON_SVG;
+                                console.warn("[ISA] Sub-breakdown error:", err);
+                                subContainer.innerHTML = `<div class="isa-breakdown-sub-error">解构请求失败（点击重试）</div>`;
+                                subContainer.onclick = (e) => {
+                                    e.stopPropagation();
+                                    subContainer._hasLoaded = false;
+                                    handleSubBreakdownClick(btn, itemLi);
+                                };
+                            });
+                    }
+
                     breakdownContentEl.onclick = (e) => {
+                        const subBtn = e.target.closest(".isa-breakdown-sub-btn");
+                        if (subBtn) {
+                            e.stopPropagation();
+                            const itemLi = subBtn.closest(".isa-breakdown-item");
+                            if (itemLi) {
+                                handleSubBreakdownClick(subBtn, itemLi);
+                            }
+                            return;
+                        }
+
                         const enEl = e.target.closest(".isa-breakdown-en");
                         const targetTerm = e.target.closest(".isa-breakdown-term");
                         const finalEnEl = enEl || (targetTerm ? targetTerm.querySelector(".isa-breakdown-en") : null);
