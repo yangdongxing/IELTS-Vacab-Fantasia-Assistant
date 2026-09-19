@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.9.2
+// @version      1.9.3
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -918,7 +918,7 @@
         lookupWord: (word) => {
             return lookupWord(word);
         },
-        version: "1.9.2",
+        version: "1.9.3",
         active: true
     };
     if (typeof window !== "undefined" && window !== rootWin) {
@@ -1542,15 +1542,50 @@
         return getNextMarkInParagraph();
     }
 
+    // ==========================================
+    // Visual Viewport Sync (Trackpad Pinch-Zoom Only)
+    // Tracks macOS trackpad pinch zoom via Visual Viewport API,
+    // completely ignoring and bypassing browser Cmd+/- page zoom.
+    // ==========================================
+    let vvRafId = null;
+
+    function syncModalWithVisualViewport() {
+        vvRafId = null;
+        if (!isMemoryModalOpen() || !memoryModalRefs) return;
+        const modal = document.getElementById("geek-memory-modal");
+        if (!modal) return;
+
+        const vv = window.visualViewport;
+        if (!vv) return;
+
+        const scale = vv.scale || 1;
+        // Compensate for trackpad pinch zoom and pan offset
+        if (Math.abs(scale - 1) > 0.005 || Math.abs(vv.offsetLeft) > 0.5 || Math.abs(vv.offsetTop) > 0.5) {
+            modal.style.transformOrigin = "0 0";
+            modal.style.transform = `translate(${vv.offsetLeft}px, ${vv.offsetTop}px) scale(${1 / scale})`;
+        } else {
+            modal.style.transformOrigin = "0 0";
+            modal.style.transform = "";
+        }
+    }
+
+    function scheduleSyncModalWithVisualViewport() {
+        if (!isMemoryModalOpen()) return;
+        if (vvRafId) cancelAnimationFrame(vvRafId);
+        vvRafId = requestAnimationFrame(syncModalWithVisualViewport);
+    }
+
     function createMemoryModal() {
         if (memoryModalRefs) return memoryModalRefs;
 
         const modal = document.createElement("div");
         modal.id = "geek-memory-modal";
         modal.style.position = "fixed";
-        modal.style.inset = "0";
+        modal.style.top = "0px";
+        modal.style.left = "0px";
         modal.style.width = "100%";
         modal.style.height = "100%";
+        modal.style.transformOrigin = "0 0";
         modal.style.alignItems = "center";
         modal.style.justifyContent = "center";
         modal.style.padding = "16px";
@@ -1911,6 +1946,11 @@
             }
         });
 
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener("resize", scheduleSyncModalWithVisualViewport, { passive: true });
+            window.visualViewport.addEventListener("scroll", scheduleSyncModalWithVisualViewport, { passive: true });
+        }
+
         document.body.appendChild(modal);
         return memoryModalRefs;
     }
@@ -1953,11 +1993,17 @@
 
         resetMemoryAnimation();
 
-        const targetRect = targetEl.getBoundingClientRect();
-        const imageRect = image.getBoundingClientRect();
-        const targetCenter = targetRect.top + targetRect.height / 2;
-        const imageCenter = imageRect.top + imageRect.height / 2;
-        const dropDistance = Math.max(0, imageCenter - targetCenter);
+        let dropDistance = 0;
+        if (typeof targetEl.offsetTop === "number" && typeof image.offsetTop === "number" && targetEl.offsetParent === image.offsetParent) {
+            const targetCenter = targetEl.offsetTop + targetEl.offsetHeight / 2;
+            const imageCenter = image.offsetTop + image.offsetHeight / 2;
+            dropDistance = Math.max(0, imageCenter - targetCenter);
+        } else {
+            const targetRect = targetEl.getBoundingClientRect();
+            const imageRect = image.getBoundingClientRect();
+            const vvScale = (window.visualViewport && window.visualViewport.scale) ? window.visualViewport.scale : 1;
+            dropDistance = Math.max(0, (imageRect.top + imageRect.height / 2) - (targetRect.top + targetRect.height / 2)) * vvScale;
+        }
 
         targetEl.style.setProperty("--geek-memory-header-drop", `${dropDistance}px`);
         targetEl.style.setProperty("--geek-memory-word-drop", `${dropDistance}px`);
@@ -2157,6 +2203,7 @@
 
         refs.modal.classList.add("open");
         refs.modal.style.display = "flex";
+        syncModalWithVisualViewport();
         window.dispatchEvent(new CustomEvent("ielts_memory_modal_opened", { detail: { word: entry.w } }));
         focusMemoryAnswer();
 
@@ -2179,6 +2226,7 @@
 
     function closeMemoryModal() {
         clearTimeout(autoCloseTimer);
+        if (vvRafId) cancelAnimationFrame(vvRafId);
         stopSiriPlayback();
         stopModalSpeech();
         if (window.speechSynthesis) {
@@ -2187,6 +2235,7 @@
         if (memoryModalRefs && memoryModalRefs.modal) {
             memoryModalRefs.modal.classList.remove("open");
             memoryModalRefs.modal.style.display = "none";
+            memoryModalRefs.modal.style.transform = "";
             if (memoryModalRefs.answer) memoryModalRefs.answer.blur();
         }
         currentMemoryData = null;
