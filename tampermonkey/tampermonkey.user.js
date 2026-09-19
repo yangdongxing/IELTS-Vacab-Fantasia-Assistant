@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.8.7
+// @version      1.9.0
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -309,17 +309,86 @@
         utter.rate = isZh ? 0.95 : 0.92;
     }
 
-    // Chrome bug: cancel() then immediate speak() silently fails.
-    // Must add a short delay after cancel().
-    function speakText(text, lang = "en-US", onEnd = null) {
-        if (!window.speechSynthesis || !text) return;
+    // ==========================================
+    // Unified Speech Subsystem (Siri Priority + Fast Fallback)
+    // ==========================================
+    let activeSpeechSSE = null;
+    let activeSpeechPollTimer = null;
+
+    function stopAllSpeech() {
+        if (activeSpeechSSE) {
+            try { activeSpeechSSE.close(); } catch (e) {}
+            activeSpeechSSE = null;
+        }
+        if (activeSpeechPollTimer) {
+            clearInterval(activeSpeechPollTimer);
+            activeSpeechPollTimer = null;
+        }
+        if (window.speechSynthesis) {
+            try { window.speechSynthesis.cancel(); } catch (e) {}
+        }
+        if (typeof clearSpeechHighlights === "function") {
+            try { clearSpeechHighlights(); } catch (e) {}
+        }
+        if (typeof memoryModalRefs !== "undefined" && memoryModalRefs) {
+            if (memoryModalRefs.word) memoryModalRefs.word.classList.remove("is-speaking");
+            if (memoryModalRefs.translation) memoryModalRefs.translation.classList.remove("is-speaking");
+            if (memoryModalRefs.exampleEnglish) memoryModalRefs.exampleEnglish.classList.remove("is-speaking");
+            if (memoryModalRefs.exampleChinese) memoryModalRefs.exampleChinese.classList.remove("is-speaking");
+        }
+        document.querySelectorAll(".isa-trans-btn.speak-unified.speaking, .isa-trans-btn.select-clean.speaking, .isa-trans-btn.speak.speaking").forEach(btn => {
+            btn.classList.remove("speaking", "ready");
+            btn.textContent = "🎧 朗读段落";
+            btn._stepIndex = -1;
+            btn._isSpeaking = false;
+            btn._isSiriSpeaking = false;
+        });
+        return fetch("http://127.0.0.1:8777/api/siri_speak", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "stop" })
+        }).catch(() => {});
+    }
+
+    // Backwards-compatible aliases
+    const stopSiriPlayback = stopAllSpeech;
+    const stopModalSpeech = stopAllSpeech;
+    const stopModalExampleSpeech = stopAllSpeech;
+    const stopSpeaking = stopAllSpeech;
+
+    function startSiriPlayback(text, count = 1) {
+        return fetch("http://127.0.0.1:8777/api/siri_speak", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "speak", text, count })
+        }).then(res => {
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res.json();
+        });
+    }
+
+    function checkSiriStatus() {
+        return fetch("http://127.0.0.1:8777/api/siri_speak")
+            .then(res => res.json())
+            .catch(() => ({ speaking: false }));
+    }
+
+    function speakChinese(text, onEnd = null) {
+        if (!text) {
+            if (typeof onEnd === "function") onEnd();
+            return;
+        }
+        if (!window.speechSynthesis) {
+            if (typeof onEnd === "function") onEnd();
+            return;
+        }
         try {
             window.speechSynthesis.cancel();
             if (window.speechSynthesis.paused) {
                 window.speechSynthesis.resume();
             }
             const utter = new SpeechSynthesisUtterance(text);
-            _applyVoice(utter, lang);
+            _applyVoice(utter, "zh-CN");
             if (typeof onEnd === "function") {
                 utter.onend = onEnd;
                 utter.onerror = onEnd;
@@ -331,207 +400,246 @@
                 window.speechSynthesis.speak(utter);
             }, 50);
         } catch (e) {
-            console.warn("[ISA] speakText error:", e);
+            console.warn("[ISA] speakChinese error:", e);
             if (typeof onEnd === "function") onEnd();
         }
     }
 
-    function speakBilingualExample(enText, zhText) {
-        if (!window.speechSynthesis || (!enText && !zhText)) return;
-        try {
-            window.speechSynthesis.cancel();
-            if (enText && zhText) {
-                const utterEn = new SpeechSynthesisUtterance(enText);
-                _applyVoice(utterEn, "en-US");
+    function playEnglishSpeech(text, options = {}) {
+        const cleanText = (text || "")
+            .replace(/[\u2013\u2014]/g, "-")
+            .replace(/[\u2018\u2019]/g, "'")
+            .replace(/[\u201c\u201d]/g, '"')
+            .replace(/\u2026/g, "...")
+            .replace(/\s+/g, " ")
+            .trim();
 
-                const utterZh = new SpeechSynthesisUtterance(zhText);
-                _applyVoice(utterZh, "zh-CN");
-
-                utterEn.onend = () => {
-                    try {
-                        if (isMemoryModalOpen()) {
-                            window.speechSynthesis.speak(utterZh);
-                        }
-                    } catch (e) {}
-                };
-                utterEn.onerror = (ev) => {
-                    console.warn("[ISA] EN utterance error:", ev.error);
-                    try {
-                        if (isMemoryModalOpen()) {
-                            window.speechSynthesis.speak(utterZh);
-                        }
-                    } catch (e) {}
-                };
-                // Delay speak after cancel to avoid Chrome silent failure
-                setTimeout(() => {
-                    window.speechSynthesis.speak(utterEn);
-                }, 50);
-            } else if (enText) {
-                speakText(enText, "en-US");
-            } else if (zhText) {
-                speakText(zhText, "zh-CN");
-            }
-        } catch (e) { console.warn("[ISA] speakBilingual error:", e); }
-    }
-
-    let modalSiriEs = null;
-
-    function stopModalSpeech() {
-        if (modalSiriEs) {
-            try { modalSiriEs.close(); } catch (e) {}
-            modalSiriEs = null;
-        }
-        if (memoryModalRefs) {
-            if (memoryModalRefs.word) memoryModalRefs.word.classList.remove("is-speaking");
-            if (memoryModalRefs.translation) memoryModalRefs.translation.classList.remove("is-speaking");
-            if (memoryModalRefs.exampleEnglish) memoryModalRefs.exampleEnglish.classList.remove("is-speaking");
-            if (memoryModalRefs.exampleChinese) memoryModalRefs.exampleChinese.classList.remove("is-speaking");
-        }
-    }
-    const stopModalExampleSpeech = stopModalSpeech;
-
-    function speakBilingualWithSiriPriority(enText, zhText, targetType = "word") {
-        if (!enText && !zhText) return;
-
-        // 1. Cancel browser speech & any previous Siri session
-        if (window.speechSynthesis) {
-            try { window.speechSynthesis.cancel(); } catch (e) {}
-        }
-        stopSiriPlayback();
-
-        // 2. Update speech proxy for Siri Option+Esc
-        const proxy = document.getElementById("isa-speech-proxy");
-        if (proxy && enText) {
-            proxy.value = enText;
-        }
-
-        const isWord = targetType === "word";
-        const enEl = isWord ? (memoryModalRefs && memoryModalRefs.word) : (memoryModalRefs && memoryModalRefs.exampleEnglish);
-        const zhEl = isWord ? (memoryModalRefs && memoryModalRefs.translation) : (memoryModalRefs && memoryModalRefs.exampleChinese);
-
-        // 3. Fallback or direct Chinese speech if no English
-        if (!enText) {
-            if (zhText && isMemoryModalOpen()) {
-                if (zhEl) zhEl.classList.add("is-speaking");
-                speakText(zhText, "zh-CN", () => {
-                    if (zhEl) zhEl.classList.remove("is-speaking");
-                });
-            }
+        if (!cleanText) {
+            if (typeof options.onEnd === "function") options.onEnd();
             return;
         }
 
-        if (enEl) enEl.classList.add("is-speaking");
+        stopAllSpeech();
 
-        // 4. Request native Siri playback via local server
-        startSiriPlayback(enText, 1)
-            .then(() => {
-                if (modalSiriEs) {
-                    try { modalSiriEs.close(); } catch (e) {}
-                    modalSiriEs = null;
-                }
-                try {
-                    const es = new EventSource("http://127.0.0.1:8777/api/siri_events");
-                    modalSiriEs = es;
+        const count = Math.max(1, parseInt(options.count, 10) || 1);
+        const el = options.element;
 
-                    es.onmessage = (event) => {
-                        try {
-                            const data = JSON.parse(event.data);
-                            if (data.type === "done" || data.type === "stop") {
-                                stopModalSpeech();
-                                if (data.type === "done" && isMemoryModalOpen() && zhText) {
-                                    if (zhEl) zhEl.classList.add("is-speaking");
-                                    speakText(zhText, "zh-CN", () => {
-                                        if (zhEl) zhEl.classList.remove("is-speaking");
-                                    });
-                                }
-                            }
-                        } catch (err) {
-                            console.warn("[ISA] Modal Siri SSE parse error:", err);
-                        }
-                    };
+        // Update offscreen proxy and clipboard
+        let singleUnit = cleanText;
+        if (!/[.!?…"”’']$/.test(singleUnit)) singleUnit += ".";
+        const repeatedText = Array(count).fill(singleUnit).join("\n\n\n\n\n\n");
 
-                    es.onerror = () => {
-                        stopModalSpeech();
-                    };
-                } catch (e) {
-                    console.warn("[ISA] Failed to open SSE for modal Siri:", e);
-                }
-            })
-            .catch(() => {
-                // 5. Fallback to browser speech if server is offline or fails
-                stopModalSpeech();
-                speakBilingualExample(enText, zhText);
-            });
-    }
-
-    function speakExampleWithSiriPriority(enText, zhText) {
-        return speakBilingualWithSiriPriority(enText, zhText, "example");
-    }
-
-    function speakWithSiriPriority(text, onComplete = null) {
-        if (!text) {
-            if (typeof onComplete === "function") onComplete();
-            return;
+        let proxy = document.getElementById("isa-speech-proxy");
+        if (!proxy) {
+            proxy = document.createElement("textarea");
+            proxy.id = "isa-speech-proxy";
+            proxy.setAttribute("readonly", "true");
+            proxy.setAttribute("tabindex", "-1");
+            proxy.style.cssText = "position: fixed; left: -9999px; top: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: none; padding: 0; margin: 0; z-index: -9999;";
+            document.body.appendChild(proxy);
+        }
+        proxy.value = repeatedText;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(repeatedText).catch(() => {});
         }
 
-        // 1. Cancel browser speech & any previous Siri session
-        if (window.speechSynthesis) {
-            try { window.speechSynthesis.cancel(); } catch (e) {}
-        }
-        stopSiriPlayback();
-
-        // 2. Update speech proxy for Siri Option+Esc
-        const proxy = document.getElementById("isa-speech-proxy");
-        if (proxy) {
-            proxy.value = text;
+        if (el) {
+            el.classList.add("is-speaking");
         }
 
-        let completed = false;
-        const triggerComplete = () => {
-            if (completed) return;
-            completed = true;
-            if (modalSiriEs) {
-                try { modalSiriEs.close(); } catch (e) {}
-                modalSiriEs = null;
+        let isCompleted = false;
+        const triggerEnd = () => {
+            if (isCompleted) return;
+            isCompleted = true;
+            if (activeSpeechSSE) {
+                try { activeSpeechSSE.close(); } catch (e) {}
+                activeSpeechSSE = null;
             }
-            if (typeof onComplete === "function") onComplete();
+            if (activeSpeechPollTimer) {
+                clearInterval(activeSpeechPollTimer);
+                activeSpeechPollTimer = null;
+            }
+            if (el) {
+                el.classList.remove("is-speaking", "speaking", "ready");
+            }
+            if (typeof options.onEnd === "function") {
+                options.onEnd();
+            }
         };
 
-        // 3. Request native Siri playback via local server
-        startSiriPlayback(text, 1)
+        // Fallback runner using browser speechSynthesis
+        const runBrowserFallback = () => {
+            if (!window.speechSynthesis) {
+                triggerEnd();
+                return;
+            }
+            try {
+                window.speechSynthesis.cancel();
+                if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+
+                let currentLoop = 0;
+                const playLoop = () => {
+                    if (isCompleted) return;
+                    const utter = new SpeechSynthesisUtterance(cleanText);
+                    _applyVoice(utter, "en-US");
+
+                    utter.onstart = () => {
+                        if (currentLoop === 0 && typeof options.onStart === "function") {
+                            options.onStart();
+                        }
+                        if (typeof options.onLoopStart === "function") {
+                            options.onLoopStart({ loopIndex: currentLoop, totalLoops: count });
+                        }
+                    };
+
+                    utter.onboundary = (ev) => {
+                        if (ev.name === "word" && typeof options.onWord === "function") {
+                            options.onWord({
+                                charIndex: ev.charIndex,
+                                length: ev.charLength || 1,
+                                rawWord: ""
+                            });
+                        }
+                    };
+
+                    utter.onend = () => {
+                        if (typeof options.onLoopEnd === "function") {
+                            options.onLoopEnd();
+                        }
+                        currentLoop++;
+                        if (currentLoop < count && !isCompleted) {
+                            setTimeout(playLoop, 80);
+                        } else {
+                            triggerEnd();
+                        }
+                    };
+
+                    utter.onerror = (err) => {
+                        console.warn("[ISA] Browser speech error:", err);
+                        triggerEnd();
+                    };
+
+                    setTimeout(() => {
+                        if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+                        window.speechSynthesis.speak(utter);
+                    }, 50);
+                };
+
+                playLoop();
+            } catch (e) {
+                console.warn("[ISA] Fallback speech error:", e);
+                triggerEnd();
+            }
+        };
+
+        // Request native Siri playback via local server
+        startSiriPlayback(cleanText, count)
             .then(() => {
-                if (modalSiriEs) {
-                    try { modalSiriEs.close(); } catch (e) {}
-                    modalSiriEs = null;
+                if (typeof options.onStart === "function") {
+                    options.onStart();
                 }
                 try {
                     const es = new EventSource("http://127.0.0.1:8777/api/siri_events");
-                    modalSiriEs = es;
+                    activeSpeechSSE = es;
 
                     es.onmessage = (event) => {
                         try {
                             const data = JSON.parse(event.data);
-                            if (data.type === "done" || data.type === "stop") {
-                                triggerComplete();
+                            if (data.type === "loop_start") {
+                                if (typeof options.onLoopStart === "function") {
+                                    options.onLoopStart({
+                                        loopIndex: data.loop_index || 0,
+                                        totalLoops: data.total_loops || count
+                                    });
+                                }
+                            } else if (data.type === "word") {
+                                if (typeof options.onWord === "function") {
+                                    options.onWord({
+                                        charIndex: data.char_index,
+                                        length: data.char_length || (data.raw_word ? data.raw_word.length : 0),
+                                        rawWord: data.raw_word
+                                    });
+                                }
+                            } else if (data.type === "loop_end") {
+                                if (typeof options.onLoopEnd === "function") {
+                                    options.onLoopEnd();
+                                }
+                            } else if (data.type === "done" || data.type === "stop") {
+                                triggerEnd();
                             }
-                        } catch (err) {
-                            console.warn("[ISA] Siri SSE parse error:", err);
+                        } catch (parseErr) {
+                            console.warn("[ISA] Siri SSE parse error:", parseErr);
                         }
                     };
 
                     es.onerror = () => {
-                        triggerComplete();
+                        // Keep listening or let poll timer catch completion
                     };
-                } catch (e) {
-                    console.warn("[ISA] Failed to open SSE for Siri:", e);
-                    triggerComplete();
+
+                    // Backup safety polling
+                    if (activeSpeechPollTimer) clearInterval(activeSpeechPollTimer);
+                    activeSpeechPollTimer = setInterval(() => {
+                        checkSiriStatus().then(st => {
+                            if (!st || !st.speaking) {
+                                triggerEnd();
+                            }
+                        }).catch(() => triggerEnd());
+                    }, 600);
+                } catch (esErr) {
+                    console.warn("[ISA] EventSource error:", esErr);
+                    runBrowserFallback();
                 }
             })
             .catch(() => {
-                // 4. Fallback to browser speech if server is offline or fails
-                speakText(text, "en-US", triggerComplete);
+                // Server offline or failed: instant graceful failover to browser native voice
+                runBrowserFallback();
             });
     }
+
+    function playBilingualSpeech(enText, zhText, options = {}) {
+        const hasZh = Boolean(zhText);
+        const condition = options.condition || (() => true);
+
+        playEnglishSpeech(enText, {
+            ...options,
+            element: options.element,
+            onEnd: () => {
+                if (hasZh && condition()) {
+                    if (options.zhElement) options.zhElement.classList.add("is-speaking");
+                    speakChinese(zhText, () => {
+                        if (options.zhElement) options.zhElement.classList.remove("is-speaking");
+                        if (typeof options.onEnd === "function") options.onEnd();
+                    });
+                } else {
+                    if (typeof options.onEnd === "function") options.onEnd();
+                }
+            }
+        });
+    }
+
+    // Backwards-compatible aliases
+    function speakText(text, lang = "en-US", onEnd = null) {
+        if (lang && lang.startsWith("zh")) {
+            speakChinese(text, onEnd);
+        } else {
+            playEnglishSpeech(text, { onEnd });
+        }
+    }
+    const speakWithSiriPriority = (text, onEnd) => playEnglishSpeech(text, { onEnd });
+    const speakExampleWithSiriPriority = (en, zh) => playBilingualSpeech(en, zh, {
+        element: (typeof memoryModalRefs !== "undefined" && memoryModalRefs) ? memoryModalRefs.exampleEnglish : null,
+        zhElement: (typeof memoryModalRefs !== "undefined" && memoryModalRefs) ? memoryModalRefs.exampleChinese : null,
+        condition: isMemoryModalOpen
+    });
+    const speakBilingualWithSiriPriority = (en, zh, type = "word") => {
+        const isWord = type === "word";
+        playBilingualSpeech(en, zh, {
+            element: isWord ? (typeof memoryModalRefs !== "undefined" && memoryModalRefs?.word) : (typeof memoryModalRefs !== "undefined" && memoryModalRefs?.exampleEnglish),
+            zhElement: isWord ? (typeof memoryModalRefs !== "undefined" && memoryModalRefs?.translation) : (typeof memoryModalRefs !== "undefined" && memoryModalRefs?.exampleChinese),
+            condition: isMemoryModalOpen
+        });
+    };
+    const speakBilingualExample = (en, zh) => playBilingualSpeech(en, zh, { condition: isMemoryModalOpen });
 
     const POS_SPEECH_MAP = {
         n: "名词",
@@ -810,7 +918,7 @@
         lookupWord: (word) => {
             return lookupWord(word);
         },
-        version: "1.8.7",
+        version: "1.9.0",
         active: true
     };
     if (typeof window !== "undefined" && window !== rootWin) {
@@ -1178,6 +1286,7 @@
                 opacity: 1 !important;
                 color: #0369a1 !important;
             }
+            .isa-trans-btn.speak-unified,
             .isa-trans-btn.select-clean {
                 display: inline-flex !important;
                 align-items: center !important;
@@ -1190,15 +1299,18 @@
                 font-size: 11.5px !important;
                 transition: all 0.2s ease !important;
             }
+            .isa-trans-btn.speak-unified:hover,
             .isa-trans-btn.select-clean:hover {
                 background: rgba(2, 132, 199, 0.18) !important;
                 color: #0369a1 !important;
             }
+            .isa-trans-btn.speak-unified.ready,
             .isa-trans-btn.select-clean.ready {
                 background: rgba(34, 197, 94, 0.15) !important;
                 color: #15803d !important;
                 font-weight: 600 !important;
             }
+            .isa-trans-btn.speak-unified.speaking,
             .isa-trans-btn.select-clean.speaking {
                 background: rgba(225, 29, 72, 0.12) !important;
                 color: #e11d48 !important;
@@ -2197,7 +2309,7 @@
                 textSpan.style.cursor = "pointer";
                 textSpan.addEventListener("click", (e) => {
                     e.stopPropagation();
-                    speakText(m.entry.w);
+                    playEnglishSpeech(m.entry.w);
                 });
 
                 bubble.appendChild(image);
@@ -2435,51 +2547,21 @@
     let lastActiveSelectCleanBtn = null;
     const REPEAT_STEPS = [1, 3, 6, 10, 15];
 
-    let activeSiriEventSource = null;
-
-    function stopSiriPlayback() {
-        if (activeSiriEventSource) {
-            try { activeSiriEventSource.close(); } catch (e) {}
-            activeSiriEventSource = null;
-        }
-        stopModalSpeech();
-        clearSpeechHighlights();
-        return fetch("http://127.0.0.1:8777/api/siri_speak", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "stop" })
-        }).catch(() => {});
-    }
-
-    function startSiriPlayback(text, count = 1) {
-        return fetch("http://127.0.0.1:8777/api/siri_speak", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "speak", text, count })
-        }).then(res => res.json());
-    }
-
-    function checkSiriStatus() {
-        return fetch("http://127.0.0.1:8777/api/siri_speak")
-            .then(res => res.json())
-            .catch(() => ({ speaking: false }));
-    }
-
-    function resetAllSelectCleanBtns(exceptBtn = null) {
-        document.querySelectorAll(".isa-trans-btn.select-clean").forEach(btn => {
+    function resetAllParagraphSpeakBtns(exceptBtn = null) {
+        document.querySelectorAll(".isa-trans-btn.speak-unified, .isa-trans-btn.select-clean, .isa-trans-btn.speak").forEach(btn => {
             if (btn !== exceptBtn) {
                 if (btn._timer) clearTimeout(btn._timer);
                 if (btn._debounceTimer) clearTimeout(btn._debounceTimer);
                 if (btn._pollInterval) clearInterval(btn._pollInterval);
-                btn.classList.remove("ready");
-                btn.classList.remove("speaking");
-                btn.textContent = "🎧 Siri朗读";
-                btn.title = "就绪纯净段落，点击切换次数（1-3-6-10-15）停顿后自动播放 Siri，亦可按 Option+Esc";
+                btn.classList.remove("ready", "speaking");
+                btn.textContent = "🎧 朗读段落";
                 btn._stepIndex = -1;
+                btn._isSpeaking = false;
                 btn._isSiriSpeaking = false;
             }
         });
     }
+    const resetAllSelectCleanBtns = resetAllParagraphSpeakBtns;
 
     const ZHIPU_API_KEY_DEFAULT = "453806761358446aba219751fa9ff97d.Pe3UBuEiNTj0rSNY";
 
@@ -2724,8 +2806,7 @@
                         <button class="isa-trans-btn retry" style="display:none;" title="重新获取翻译">🔄</button>
                     </span>
                     <span class="isa-trans-tools">
-                        <button class="isa-trans-btn speak" title="朗读当前英文段落">🔊 朗读英文</button>
-                        <button class="isa-trans-btn select-clean" title="就绪纯净段落，按 Option+Esc 唤起高保真 Siri 朗读（连续点击阶梯累加: 1-3-6-10-15）">🎧 Siri朗读</button>
+                        <button class="isa-trans-btn speak-unified" title="点击朗读段落（连续点击切换循环次数: 1-3-6-10-15，优先高保真 Siri 语音）">🎧 朗读段落</button>
                         <button class="isa-trans-btn close" title="关闭">✕</button>
                     </span>
                 </div>
@@ -2736,49 +2817,36 @@
             `;
             targetParagraph.insertAdjacentElement("afterend", transBox);
 
-            const speakBtn = transBox.querySelector(".isa-trans-btn.speak");
+            const speakUnifiedBtn = transBox.querySelector(".isa-trans-btn.speak-unified");
             const retryBtn = transBox.querySelector(".isa-trans-btn.retry");
-            const selectCleanBtn = transBox.querySelector(".isa-trans-btn.select-clean");
             const closeBtn = transBox.querySelector(".isa-trans-btn.close");
 
-            selectCleanBtn.onclick = (e) => {
+            speakUnifiedBtn.onclick = (e) => {
                 e.stopPropagation();
 
-                // If currently speaking, clicking immediately stops Siri
-                if (selectCleanBtn._isSiriSpeaking) {
-                    stopSiriPlayback();
-                    if (selectCleanBtn._pollInterval) {
-                        clearInterval(selectCleanBtn._pollInterval);
-                        selectCleanBtn._pollInterval = null;
+                // If currently speaking, clicking immediately stops playback
+                if (speakUnifiedBtn._isSpeaking) {
+                    stopAllSpeech();
+                    if (speakUnifiedBtn._debounceTimer) {
+                        clearTimeout(speakUnifiedBtn._debounceTimer);
+                        speakUnifiedBtn._debounceTimer = null;
                     }
-                    if (selectCleanBtn._debounceTimer) {
-                        clearTimeout(selectCleanBtn._debounceTimer);
-                        selectCleanBtn._debounceTimer = null;
-                    }
-                    selectCleanBtn._isSiriSpeaking = false;
-                    selectCleanBtn.classList.remove("speaking");
-                    selectCleanBtn.classList.remove("ready");
-                    selectCleanBtn.textContent = "🎧 Siri朗读";
-                    selectCleanBtn.title = "就绪纯净段落，点击切换次数（1-3-6-10-15）停顿后自动播放 Siri，亦可按 Option+Esc";
-                    selectCleanBtn._stepIndex = -1;
+                    speakUnifiedBtn._isSpeaking = false;
+                    speakUnifiedBtn.classList.remove("speaking", "ready");
+                    speakUnifiedBtn.textContent = "🎧 朗读段落";
+                    speakUnifiedBtn.title = "点击朗读段落（连续点击切换循环次数: 1-3-6-10-15，优先高保真 Siri 语音）";
+                    speakUnifiedBtn._stepIndex = -1;
                     return;
                 }
 
-                // If switching from another paragraph, reset other buttons
-                if (lastActiveSelectCleanBtn !== selectCleanBtn) {
-                    resetAllSelectCleanBtns(selectCleanBtn);
-                    selectCleanBtn._stepIndex = -1;
-                    lastActiveSelectCleanBtn = selectCleanBtn;
-                }
-
-                // If browser speech is running, stop it
-                stopSpeaking();
+                // Reset other paragraph buttons if any
+                resetAllParagraphSpeakBtns(speakUnifiedBtn);
 
                 const rawText = transBox._currentEnglishText || textToTranslate || (targetParagraph ? targetParagraph.innerText : "");
                 const cleanEnglish = (rawText || "")
-                    .replace(/[\u2013\u2014]/g, "-")
-                    .replace(/[\u2018\u2019]/g, "'")
-                    .replace(/[\u201c\u201d]/g, '"')
+                    .replace(/[–—]/g, "-")
+                    .replace(/[‘’]/g, "'")
+                    .replace(/[“”]/g, '"')
                     .replace(/\u2026/g, "...")
                     .replace(/\s+/g, " ")
                     .trim();
@@ -2786,41 +2854,18 @@
                 if (!cleanEnglish) return;
 
                 // Step-wise repeat count: 1 -> 3 -> 6 -> 10 -> 15 (loops back to 1)
-                selectCleanBtn._stepIndex = ((selectCleanBtn._stepIndex ?? -1) + 1) % REPEAT_STEPS.length;
-                const count = REPEAT_STEPS[selectCleanBtn._stepIndex];
+                speakUnifiedBtn._stepIndex = ((speakUnifiedBtn._stepIndex ?? -1) + 1) % REPEAT_STEPS.length;
+                const count = REPEAT_STEPS[speakUnifiedBtn._stepIndex];
 
-                // Prepare clipboard & speechProxy as backup (Option+Esc ready)
-                let singleUnit = cleanEnglish;
-                if (!/[.!?…"”’']$/.test(singleUnit)) {
-                    singleUnit += ".";
-                }
-                const repeatedText = Array(count).fill(singleUnit).join("\n\n\n\n\n\n");
+                // Visual feedback during rapid clicks
+                speakUnifiedBtn.classList.remove("speaking");
+                speakUnifiedBtn.classList.add("ready");
+                speakUnifiedBtn.textContent = count > 1 ? `🎧 朗读 (${count}次)` : `🎧 朗读 (1次)`;
+                speakUnifiedBtn.title = `连续点击切换播放次数 (1-3-6-10-15)，停顿后自动播放`;
 
-                let speechProxy = document.getElementById("isa-speech-proxy");
-                if (!speechProxy) {
-                    speechProxy = document.createElement("textarea");
-                    speechProxy.id = "isa-speech-proxy";
-                    speechProxy.setAttribute("readonly", "true");
-                    speechProxy.setAttribute("tabindex", "-1");
-                    speechProxy.style.cssText = "position: fixed; left: -9999px; top: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: none; padding: 0; margin: 0; z-index: -9999;";
-                    document.body.appendChild(speechProxy);
-                }
-
-                speechProxy.value = repeatedText;
-
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(repeatedText).catch(() => {});
-                }
-
-                // Step visual feedback while user is rapidly clicking
-                selectCleanBtn.classList.remove("speaking");
-                selectCleanBtn.classList.add("ready");
-                selectCleanBtn.textContent = `🎧 Siri (${count}次)`;
-                selectCleanBtn.title = `连续点击切换播放次数 (1-3-6-10-15)，停顿后自动开播 Siri`;
-
-                // Debounce timer: 650ms after user stops clicking, auto-play via server!
-                if (selectCleanBtn._debounceTimer) clearTimeout(selectCleanBtn._debounceTimer);
-                selectCleanBtn._debounceTimer = setTimeout(() => {
+                // Debounce 650ms: after user stops clicking, start playback
+                if (speakUnifiedBtn._debounceTimer) clearTimeout(speakUnifiedBtn._debounceTimer);
+                speakUnifiedBtn._debounceTimer = setTimeout(() => {
                     let activeBlock = transBox._targetParagraph || targetParagraph;
                     const cleanPrefix = cleanEnglish.slice(0, Math.min(cleanEnglish.length, 25));
                     if (activeBlock && cleanPrefix) {
@@ -2859,217 +2904,38 @@
                         }
                     }
 
-                    startSiriPlayback(cleanEnglish, count)
-                        .then(() => {
-                            selectCleanBtn._isSiriSpeaking = true;
-                            selectCleanBtn.classList.remove("ready");
-                            selectCleanBtn.classList.add("speaking");
-                            selectCleanBtn.textContent = count > 1 ? `⏹ 停止Siri (1/${count})` : `⏹ 停止Siri`;
-                            selectCleanBtn.title = `正在播放中（共 ${count} 次），点击即可停止`;
+                    speakUnifiedBtn._isSpeaking = true;
+                    speakUnifiedBtn.classList.remove("ready");
+                    speakUnifiedBtn.classList.add("speaking");
+                    speakUnifiedBtn.textContent = count > 1 ? `⏹ 停止朗读 (1/${count})` : `⏹ 停止朗读`;
 
-                            // Connect to Siri real-time event stream (SSE) for word tracking
-                            if (activeSiriEventSource) {
-                                try { activeSiriEventSource.close(); } catch (e) {}
-                                activeSiriEventSource = null;
+                    playEnglishSpeech(cleanEnglish, {
+                        count,
+                        element: speakUnifiedBtn,
+                        onLoopStart: ({ loopIndex, totalLoops }) => {
+                            const curr = (loopIndex || 0) + 1;
+                            const total = totalLoops || count;
+                            speakUnifiedBtn.textContent = total > 1 ? `⏹ 停止朗读 (${curr}/${total})` : `⏹ 停止朗读`;
+                            clearSpeechHighlights();
+                        },
+                        onWord: ({ charIndex, length, rawWord }) => {
+                            if (isTextMatchedInBlock && speechMap && charIndex >= 0) {
+                                applySpeechHighlight(speechMap, offsetInParagraph, charIndex, length, rawWord);
                             }
-
-                            try {
-                                const es = new EventSource("http://127.0.0.1:8777/api/siri_events");
-                                activeSiriEventSource = es;
-
-                                es.onmessage = (event) => {
-                                    if (!selectCleanBtn._isSiriSpeaking) {
-                                        try { es.close(); } catch (e) {}
-                                        return;
-                                    }
-                                    try {
-                                        const data = JSON.parse(event.data);
-                                        if (data.type === "loop_start") {
-                                            const curr = (data.loop_index || 0) + 1;
-                                            const total = data.total_loops || count;
-                                            selectCleanBtn.textContent = total > 1 ? `⏹ 停止Siri (${curr}/${total})` : `⏹ 停止Siri`;
-                                            clearSpeechHighlights();
-                                        } else if (data.type === "word") {
-                                            if (isTextMatchedInBlock && speechMap && data.char_index >= 0) {
-                                                applySpeechHighlight(
-                                                    speechMap,
-                                                    offsetInParagraph,
-                                                    data.char_index,
-                                                    data.char_length || (data.raw_word ? data.raw_word.length : 0),
-                                                    data.raw_word
-                                                );
-                                            }
-                                        } else if (data.type === "loop_end") {
-                                            // Subtle clear between loops
-                                            clearSpeechHighlights();
-                                        } else if (data.type === "done" || data.type === "stop") {
-                                            clearSpeechHighlights();
-                                            try { es.close(); } catch (e) {}
-                                            if (activeSiriEventSource === es) activeSiriEventSource = null;
-                                            selectCleanBtn._isSiriSpeaking = false;
-                                            selectCleanBtn.classList.remove("speaking");
-                                            selectCleanBtn.classList.remove("ready");
-                                            selectCleanBtn.textContent = "🎧 Siri朗读";
-                                            selectCleanBtn.title = "就绪纯净段落，点击切换次数（1-3-6-10-15）停顿后自动播放 Siri，亦可按 Option+Esc";
-                                            selectCleanBtn._stepIndex = -1;
-                                        }
-                                    } catch (err) {
-                                        console.warn("[ISA] Siri SSE parse error:", err);
-                                    }
-                                };
-
-                                es.onerror = () => {
-                                    try { es.close(); } catch (e) {}
-                                    if (activeSiriEventSource === es) activeSiriEventSource = null;
-                                };
-                            } catch (esErr) {
-                                console.warn("[ISA] EventSource error:", esErr);
-                            }
-
-                            // Fallback polling for completion to revert button state
-                            if (selectCleanBtn._pollInterval) clearInterval(selectCleanBtn._pollInterval);
-                            selectCleanBtn._pollInterval = setInterval(() => {
-                                checkSiriStatus().then(st => {
-                                    if (!st || !st.speaking) {
-                                        if (selectCleanBtn._pollInterval) {
-                                            clearInterval(selectCleanBtn._pollInterval);
-                                            selectCleanBtn._pollInterval = null;
-                                        }
-                                        if (activeSiriEventSource) {
-                                            try { activeSiriEventSource.close(); } catch (e) {}
-                                            activeSiriEventSource = null;
-                                        }
-                                        clearSpeechHighlights();
-                                        selectCleanBtn._isSiriSpeaking = false;
-                                        selectCleanBtn.classList.remove("speaking");
-                                        selectCleanBtn.classList.remove("ready");
-                                        selectCleanBtn.textContent = "🎧 Siri朗读";
-                                        selectCleanBtn.title = "就绪纯净段落，点击切换次数（1-3-6-10-15）停顿后自动播放 Siri，亦可按 Option+Esc";
-                                        selectCleanBtn._stepIndex = -1;
-                                    }
-                                }).catch(() => {});
-                            }, 600);
-                        })
-                        .catch(() => {
-                            // Fallback to Opt+Esc visual hint if local server is not running
-                            selectCleanBtn.textContent = `Opt+Esc (${count}次)`;
-                            selectCleanBtn.title = `已就绪！按 Option+Esc 朗读（本地服务未响应）`;
-                            if (selectCleanBtn._timer) clearTimeout(selectCleanBtn._timer);
-                            selectCleanBtn._timer = setTimeout(() => {
-                                selectCleanBtn.classList.remove("ready");
-                                selectCleanBtn.textContent = "🎧 Siri朗读";
-                                selectCleanBtn._stepIndex = -1;
-                            }, 3000);
-                        });
+                        },
+                        onLoopEnd: () => {
+                            clearSpeechHighlights();
+                        },
+                        onEnd: () => {
+                            clearSpeechHighlights();
+                            speakUnifiedBtn._isSpeaking = false;
+                            speakUnifiedBtn.classList.remove("speaking", "ready");
+                            speakUnifiedBtn.textContent = "🎧 朗读段落";
+                            speakUnifiedBtn.title = "点击朗读段落（连续点击切换循环次数: 1-3-6-10-15，优先高保真 Siri 语音）";
+                            speakUnifiedBtn._stepIndex = -1;
+                        }
+                    });
                 }, 650);
-            };
-
-            let isSpeaking = false;
-            let keepAliveTimer = null;
-
-            const stopSpeaking = () => {
-                if (keepAliveTimer) {
-                    clearInterval(keepAliveTimer);
-                    keepAliveTimer = null;
-                }
-                clearSpeechHighlights();
-                if (isSpeaking) {
-                    try { window.speechSynthesis.cancel(); } catch (e) {}
-                    isSpeaking = false;
-                    speakBtn.classList.remove("speaking");
-                    speakBtn.textContent = "🔊 朗读英文";
-                }
-            };
-
-            speakBtn.onclick = (e) => {
-                e.stopPropagation();
-                stopSiriPlayback();
-                if (isSpeaking) {
-                    stopSpeaking();
-                    return;
-                }
-
-                let activeBlock = transBox._targetParagraph || targetParagraph;
-                const baseText = transBox._currentEnglishText || textToTranslate;
-                const cleanPrefix = (baseText || "").replace(/\s+/g, " ").trim().slice(0, Math.min(baseText.length, 25));
-                if (activeBlock && cleanPrefix) {
-                    const blockText = (activeBlock.innerText || activeBlock.textContent || "").replace(/\s+/g, " ").trim();
-                    if (!blockText.includes(cleanPrefix)) {
-                        let prev = activeBlock.previousElementSibling;
-                        while (prev) {
-                            const pText = (prev.innerText || prev.textContent || "").replace(/\s+/g, " ").trim();
-                            if (pText.includes(cleanPrefix)) {
-                                activeBlock = prev;
-                                transBox._targetParagraph = prev;
-                                break;
-                            }
-                            prev = prev.previousElementSibling;
-                        }
-                    }
-                }
-
-                const speechMap = buildParagraphSpeechMap(activeBlock);
-                let textToSpeak = baseText;
-                let offsetInParagraph = 0;
-                let isTextMatchedInBlock = false;
-
-                if (speechMap && speechMap.fullText) {
-                    const trimmedBase = (baseText || "").trim();
-                    const cleanFull = speechMap.fullText.trim();
-                    if (cleanFull && (!trimmedBase || cleanFull.includes(trimmedBase))) {
-                        if (trimmedBase) {
-                            offsetInParagraph = speechMap.fullText.indexOf(trimmedBase);
-                            if (offsetInParagraph < 0) offsetInParagraph = 0;
-                        }
-                        isTextMatchedInBlock = true;
-                    }
-                }
-
-                if (!textToSpeak) return;
-
-                try {
-                    window.speechSynthesis.cancel();
-                    clearSpeechHighlights();
-
-                    const utter = new SpeechSynthesisUtterance(textToSpeak);
-                    _applyVoice(utter, "en-US");
-
-                    utter.onstart = () => {
-                        isSpeaking = true;
-                        speakBtn.classList.add("speaking");
-                        speakBtn.textContent = "⏹ 停止朗读";
-                        if (keepAliveTimer) clearInterval(keepAliveTimer);
-                        keepAliveTimer = setInterval(() => {
-                            if (window.speechSynthesis && window.speechSynthesis.speaking) {
-                                window.speechSynthesis.pause();
-                                window.speechSynthesis.resume();
-                            }
-                        }, 10000);
-                    };
-
-                    if (_hasHighlightSupport && isTextMatchedInBlock && speechMap && speechMap.charMap.length) {
-                        utter.onboundary = (bev) => {
-                            if (!isSpeaking) return;
-                            if (bev.name && bev.name !== "word") return;
-                            applySpeechHighlight(speechMap, offsetInParagraph, bev.charIndex, bev.charLength);
-                        };
-                    }
-
-                    utter.onend = () => {
-                        stopSpeaking();
-                    };
-
-                    utter.onerror = () => {
-                        stopSpeaking();
-                    };
-
-                    setTimeout(() => {
-                        window.speechSynthesis.speak(utter);
-                    }, 50);
-                } catch (err) {
-                    console.warn("[ISA] Paragraph speech error:", err);
-                    stopSpeaking();
-                }
             };
 
             retryBtn.onclick = (e) => {
@@ -3078,21 +2944,14 @@
                 fetchBreakdown();
             };
 
-            closeBtn.onclick = (e) => {
+                        closeBtn.onclick = (e) => {
                 e.stopPropagation();
-                stopSpeaking();
-                stopSiriPlayback();
-                if (selectCleanBtn._pollInterval) {
-                    clearInterval(selectCleanBtn._pollInterval);
-                    selectCleanBtn._pollInterval = null;
+                stopAllSpeech();
+                if (speakUnifiedBtn._debounceTimer) {
+                    clearTimeout(speakUnifiedBtn._debounceTimer);
+                    speakUnifiedBtn._debounceTimer = null;
                 }
-                if (selectCleanBtn._debounceTimer) {
-                    clearTimeout(selectCleanBtn._debounceTimer);
-                    selectCleanBtn._debounceTimer = null;
-                }
-                if (lastActiveSelectCleanBtn === selectCleanBtn) {
-                    lastActiveSelectCleanBtn = null;
-                }
+                clearSpeechHighlights();
                 transBox.remove();
             };
         }
@@ -3187,31 +3046,9 @@
                                 selection.addRange(range);
                             }
 
-                            // 2. Copy to clipboard
-                            if (navigator.clipboard && navigator.clipboard.writeText && enText) {
-                                navigator.clipboard.writeText(enText).catch(() => {});
-                            }
-
-                            // 3. Update speech proxy for Siri Option+Esc
-                            const proxy = document.getElementById("isa-speech-proxy");
-                            if (proxy && enText) {
-                                proxy.value = enText;
-                            }
-
-                            // 4. Reset paragraph speech button and highlights if active
-                            clearSpeechHighlights();
-                            stopSiriPlayback();
-                            const activeSpeakBtn = transBox.querySelector(".isa-trans-btn.speak.speaking");
-                            if (activeSpeakBtn) {
-                                activeSpeakBtn.classList.remove("speaking");
-                                activeSpeakBtn.textContent = "🔊 朗读英文";
-                            }
-
-                            // 5. Read aloud: default to macOS native Siri; fallback to browser speech if server offline
+                            // 2. Read aloud: prioritized Siri with automatic browser voice fallback
                             if (enText) {
-                                startSiriPlayback(enText, 1).catch(() => {
-                                    speakText(enText, "en-US");
-                                });
+                                playEnglishSpeech(enText);
                             }
                         }
                     };
