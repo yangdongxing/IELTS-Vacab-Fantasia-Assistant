@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.8.3
+// @version      1.8.4
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -311,7 +311,7 @@
 
     // Chrome bug: cancel() then immediate speak() silently fails.
     // Must add a short delay after cancel().
-    function speakText(text, lang = "en-US") {
+    function speakText(text, lang = "en-US", onEnd = null) {
         if (!window.speechSynthesis || !text) return;
         try {
             window.speechSynthesis.cancel();
@@ -320,13 +320,20 @@
             }
             const utter = new SpeechSynthesisUtterance(text);
             _applyVoice(utter, lang);
+            if (typeof onEnd === "function") {
+                utter.onend = onEnd;
+                utter.onerror = onEnd;
+            }
             setTimeout(() => {
                 if (window.speechSynthesis.paused) {
                     window.speechSynthesis.resume();
                 }
                 window.speechSynthesis.speak(utter);
             }, 50);
-        } catch (e) { console.warn("[ISA] speakText error:", e); }
+        } catch (e) {
+            console.warn("[ISA] speakText error:", e);
+            if (typeof onEnd === "function") onEnd();
+        }
     }
 
     function speakBilingualExample(enText, zhText) {
@@ -365,6 +372,99 @@
                 speakText(zhText, "zh-CN");
             }
         } catch (e) { console.warn("[ISA] speakBilingual error:", e); }
+    }
+
+    let modalExampleSiriEs = null;
+
+    function stopModalExampleSpeech() {
+        if (modalExampleSiriEs) {
+            try { modalExampleSiriEs.close(); } catch (e) {}
+            modalExampleSiriEs = null;
+        }
+        if (memoryModalRefs) {
+            if (memoryModalRefs.exampleEnglish) memoryModalRefs.exampleEnglish.classList.remove("is-speaking");
+            if (memoryModalRefs.exampleChinese) memoryModalRefs.exampleChinese.classList.remove("is-speaking");
+        }
+    }
+
+    function speakExampleWithSiriPriority(enText, zhText) {
+        if (!enText && !zhText) return;
+
+        // 1. Cancel browser speech & any previous Siri session
+        if (window.speechSynthesis) {
+            try { window.speechSynthesis.cancel(); } catch (e) {}
+        }
+        stopSiriPlayback();
+
+        // 2. Update speech proxy for Siri Option+Esc
+        const proxy = document.getElementById("isa-speech-proxy");
+        if (proxy && enText) {
+            proxy.value = enText;
+        }
+
+        // 3. Fallback or direct Chinese speech if no English
+        if (!enText) {
+            if (zhText && isMemoryModalOpen()) {
+                if (memoryModalRefs && memoryModalRefs.exampleChinese) {
+                    memoryModalRefs.exampleChinese.classList.add("is-speaking");
+                }
+                speakText(zhText, "zh-CN", () => {
+                    if (memoryModalRefs && memoryModalRefs.exampleChinese) {
+                        memoryModalRefs.exampleChinese.classList.remove("is-speaking");
+                    }
+                });
+            }
+            return;
+        }
+
+        if (memoryModalRefs && memoryModalRefs.exampleEnglish) {
+            memoryModalRefs.exampleEnglish.classList.add("is-speaking");
+        }
+
+        // 4. Request native Siri playback via local server
+        startSiriPlayback(enText, 1)
+            .then(() => {
+                if (modalExampleSiriEs) {
+                    try { modalExampleSiriEs.close(); } catch (e) {}
+                    modalExampleSiriEs = null;
+                }
+                try {
+                    const es = new EventSource("http://127.0.0.1:8777/api/siri_events");
+                    modalExampleSiriEs = es;
+
+                    es.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            if (data.type === "done" || data.type === "stop") {
+                                stopModalExampleSpeech();
+                                if (data.type === "done" && isMemoryModalOpen() && zhText) {
+                                    if (memoryModalRefs && memoryModalRefs.exampleChinese) {
+                                        memoryModalRefs.exampleChinese.classList.add("is-speaking");
+                                    }
+                                    speakText(zhText, "zh-CN", () => {
+                                        if (memoryModalRefs && memoryModalRefs.exampleChinese) {
+                                            memoryModalRefs.exampleChinese.classList.remove("is-speaking");
+                                        }
+                                    });
+                                }
+                            }
+                        } catch (err) {
+                            console.warn("[ISA] Modal Siri SSE parse error:", err);
+                        }
+                    };
+
+                    es.onerror = () => {
+                        stopModalExampleSpeech();
+                    };
+                } catch (e) {
+                    console.warn("[ISA] Failed to open SSE for modal Siri:", e);
+                }
+            })
+            .catch(() => {
+                // 5. Fallback to browser speech if server is offline or fails
+                stopModalExampleSpeech();
+                speakBilingualExample(enText, zhText);
+            });
     }
 
     const POS_SPEECH_MAP = {
@@ -644,7 +744,7 @@
         lookupWord: (word) => {
             return lookupWord(word);
         },
-        version: "1.8.3",
+        version: "1.8.4",
         active: true
     };
     if (typeof window !== "undefined" && window !== rootWin) {
@@ -1476,8 +1576,10 @@
                     line-height: 1.45;
                     cursor: pointer;
                     overflow-wrap: anywhere;
+                    transition: color 0.15s ease;
                 }
-                .geek-memory-example-en:hover {
+                .geek-memory-example-en:hover,
+                .geek-memory-example-en.is-speaking {
                     color: #7dd3fc;
                 }
                 .geek-memory-example-en strong {
@@ -1490,6 +1592,12 @@
                     font-size: 14px;
                     line-height: 1.45;
                     overflow-wrap: anywhere;
+                    cursor: pointer;
+                    transition: color 0.15s ease;
+                }
+                .geek-memory-example-zh:hover,
+                .geek-memory-example-zh.is-speaking {
+                    color: #93c5fd;
                 }
                 .geek-memory-answer {
                     width: 100%;
@@ -1537,8 +1645,8 @@
                 <img class="geek-memory-image" id="geek-memory-image" alt="" draggable="false">
                 <div class="geek-memory-example" id="geek-memory-example" hidden>
                   <div class="geek-memory-focus-badge" id="geek-memory-focus-badge" hidden></div>
-                  <p class="geek-memory-example-en" id="geek-memory-example-en" title="点击朗读例句"></p>
-                  <p class="geek-memory-example-zh" id="geek-memory-example-zh"></p>
+                  <p class="geek-memory-example-en" id="geek-memory-example-en" title="点击朗读例句（优先 macOS Siri 高保真语音）"></p>
+                  <p class="geek-memory-example-zh" id="geek-memory-example-zh" title="点击朗读中文翻译"></p>
                 </div>
                 <input class="geek-memory-answer" id="geek-memory-answer" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="请输入上方单词进行记忆校验">
               </div>
@@ -1572,6 +1680,8 @@
         });
 
         memoryModalRefs.word.addEventListener("click", () => {
+            stopSiriPlayback();
+            stopModalExampleSpeech();
             if (currentMemoryData) {
                 const cleanZh = formatChineseDefinitionForSpeech(currentMemoryData.d);
                 speakBilingualExample(currentMemoryData.w, cleanZh);
@@ -1581,10 +1691,26 @@
 
         memoryModalRefs.exampleEnglish.addEventListener("click", () => {
             if (currentMemoryData && currentMemoryData.sp) {
-                speakBilingualExample(currentMemoryData.sp.en || "", currentMemoryData.sp.zh || "");
+                speakExampleWithSiriPriority(currentMemoryData.sp.en || "", currentMemoryData.sp.zh || "");
             }
             requestAnimationFrame(focusMemoryAnswer);
         });
+
+        if (memoryModalRefs.exampleChinese) {
+            memoryModalRefs.exampleChinese.addEventListener("click", () => {
+                stopSiriPlayback();
+                stopModalExampleSpeech();
+                if (currentMemoryData && currentMemoryData.sp && currentMemoryData.sp.zh) {
+                    memoryModalRefs.exampleChinese.classList.add("is-speaking");
+                    speakText(currentMemoryData.sp.zh, "zh-CN", () => {
+                        if (memoryModalRefs && memoryModalRefs.exampleChinese) {
+                            memoryModalRefs.exampleChinese.classList.remove("is-speaking");
+                        }
+                    });
+                }
+                requestAnimationFrame(focusMemoryAnswer);
+            });
+        }
 
         answer.addEventListener("input", handleAnswerInput);
         answer.addEventListener("keydown", event => {
@@ -1678,6 +1804,8 @@
         if (!typed) return;
 
         if (targets.includes(typed)) {
+            stopSiriPlayback();
+            stopModalExampleSpeech();
             input.classList.add("is-correct");
             if (!hasTrackedCurrentSuccess) {
                 hasTrackedCurrentSuccess = true;
@@ -1738,6 +1866,7 @@
 
     function openMemoryModal(entry, markEl = null) {
         clearTimeout(autoCloseTimer);
+        stopSiriPlayback();
         const refs = createMemoryModal();
         currentMemoryData = entry;
         hasTrackedCurrentSuccess = false;
@@ -1845,6 +1974,8 @@
 
     function closeMemoryModal() {
         clearTimeout(autoCloseTimer);
+        stopSiriPlayback();
+        stopModalExampleSpeech();
         if (window.speechSynthesis) {
             try { window.speechSynthesis.cancel(); } catch (e) {}
         }
@@ -2220,6 +2351,7 @@
             try { activeSiriEventSource.close(); } catch (e) {}
             activeSiriEventSource = null;
         }
+        stopModalExampleSpeech();
         clearSpeechHighlights();
         return fetch("http://127.0.0.1:8777/api/siri_speak", {
             method: "POST",
