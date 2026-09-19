@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.8.2
+// @version      1.8.3
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -644,7 +644,7 @@
         lookupWord: (word) => {
             return lookupWord(word);
         },
-        version: "1.8.2",
+        version: "1.8.3",
         active: true
     };
     if (typeof window !== "undefined" && window !== rootWin) {
@@ -2126,62 +2126,88 @@
             .catch(() => translateViaLocalProxy(cleanText));
     }
 
-    function findParagraphContainer(range) {
+    function findParagraphContainer(range, textToFind = "") {
         if (!range) return null;
+
+        const BLOCK_SELECTOR = "p, h1, h2, h3, h4, h5, h6, header, blockquote, li, pre, dd, dt, figcaption, .sample-box, .paragraph";
+        const ROOT_TAGS = ["ARTICLE", "SECTION", "MAIN", "BODY", "HTML"];
 
         const getBlock = (rawNode) => {
             if (!rawNode) return null;
             let node = rawNode.nodeType === Node.TEXT_NODE ? rawNode.parentElement : rawNode;
             if (!node) return null;
-            const b = node.closest("p, blockquote, li, pre, dd, dt, .sample-box, .paragraph");
-            if (b && !["ARTICLE", "SECTION", "MAIN", "BODY", "HTML"].includes(b.tagName)) {
+            const b = node.closest(BLOCK_SELECTOR);
+            if (b && !ROOT_TAGS.includes(b.tagName)) {
                 return b;
             }
             return null;
         };
 
-        // 1. Triple-click typically starts inside the paragraph node or its text node
-        let startNode = range.startContainer;
-        if (startNode.nodeType === Node.ELEMENT_NODE && startNode.childNodes.length > range.startOffset) {
-            const childAtStart = startNode.childNodes[range.startOffset];
-            const b = getBlock(childAtStart);
-            if (b) return b;
-        }
-        const startBlock = getBlock(startNode);
-        if (startBlock) return startBlock;
+        const needle = (textToFind || range.toString() || "").replace(/\s+/g, " ").trim();
+        const prefix = needle.slice(0, Math.min(needle.length, 25));
 
-        // 2. Check endContainer (or the element immediately before endOffset for triple-clicks)
-        let endNode = range.endContainer;
-        if (endNode.nodeType === Node.ELEMENT_NODE && range.endOffset > 0) {
-            const childBeforeEnd = endNode.childNodes[range.endOffset - 1];
-            const b = getBlock(childBeforeEnd);
-            if (b) return b;
-        }
-        const endBlock = getBlock(endNode);
-        if (endBlock) return endBlock;
+        const containsSelectedText = (el) => {
+            if (!el || !prefix) return true;
+            const t = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+            return t.includes(prefix);
+        };
 
-        // 3. Fallback to commonAncestorContainer
+        // 1. Highest priority: commonAncestorContainer if already within a valid block
         let ancestor = range.commonAncestorContainer;
-        if (ancestor.nodeType === Node.TEXT_NODE) ancestor = ancestor.parentElement;
-        const ancestorBlock = getBlock(ancestor);
-        if (ancestorBlock) return ancestorBlock;
-
-        // 4. Climb up from startNode, stopping before article/section/body
-        let cur = startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode;
-        while (cur && cur !== document.body && cur.parentElement) {
-            if (["ARTICLE", "SECTION", "MAIN", "BODY"].includes(cur.parentElement.tagName)) {
-                return cur;
+        if (ancestor) {
+            if (ancestor.nodeType === Node.TEXT_NODE) ancestor = ancestor.parentElement;
+            const ancestorBlock = getBlock(ancestor);
+            if (ancestorBlock && containsSelectedText(ancestorBlock)) {
+                return ancestorBlock;
             }
-            try {
-                const display = window.getComputedStyle(cur).display;
-                if (display === "block" || display === "flex" || display === "grid" || cur.tagName === "DIV" || cur.tagName === "P") {
-                    return cur;
-                }
-            } catch (e) {}
-            cur = cur.parentElement;
         }
 
-        return startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode;
+        // 2. Start container: user selection begins here
+        let startNode = range.startContainer;
+        if (startNode) {
+            if (startNode.nodeType === Node.ELEMENT_NODE && startNode.childNodes.length > range.startOffset) {
+                const childAtStart = startNode.childNodes[range.startOffset];
+                const b = getBlock(childAtStart);
+                if (b && containsSelectedText(b)) return b;
+            }
+            const startBlock = getBlock(startNode);
+            if (startBlock && containsSelectedText(startBlock)) {
+                return startBlock;
+            }
+            if (startBlock) {
+                return startBlock;
+            }
+
+            // 3. Upward climb from startNode looking for block elements (div, custom headers, etc.)
+            let cur = startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode;
+            while (cur && cur !== document.body && cur.parentElement) {
+                if (ROOT_TAGS.includes(cur.parentElement.tagName)) {
+                    if (containsSelectedText(cur)) return cur;
+                    break;
+                }
+                try {
+                    const display = window.getComputedStyle(cur).display;
+                    if (display === "block" || display === "flex" || display === "grid" || cur.tagName === "DIV" || cur.tagName === "P" || /^H[1-6]$/.test(cur.tagName)) {
+                        if (containsSelectedText(cur)) return cur;
+                    }
+                } catch (e) {}
+                cur = cur.parentElement;
+            }
+        }
+
+        // 4. End container fallback only if it actually contains the selected text
+        let endNode = range.endContainer;
+        if (endNode) {
+            if (endNode.nodeType === Node.ELEMENT_NODE && range.endOffset > 0) {
+                const childBeforeEnd = endNode.childNodes[range.endOffset - 1];
+                const b = getBlock(childBeforeEnd);
+                if (b && containsSelectedText(b)) return b;
+            }
+            const endBlock = getBlock(endNode);
+            if (endBlock && containsSelectedText(endBlock)) return endBlock;
+        }
+
+        return startNode && startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : (startNode || range.commonAncestorContainer);
     }
 
     let lastActiveSelectCleanBtn = null;
@@ -2574,12 +2600,41 @@
                 // Debounce timer: 650ms after user stops clicking, auto-play via server!
                 if (selectCleanBtn._debounceTimer) clearTimeout(selectCleanBtn._debounceTimer);
                 selectCleanBtn._debounceTimer = setTimeout(() => {
-                    const speechMap = buildParagraphSpeechMap(targetParagraph);
+                    let activeBlock = transBox._targetParagraph || targetParagraph;
+                    const cleanPrefix = cleanEnglish.slice(0, Math.min(cleanEnglish.length, 25));
+                    if (activeBlock && cleanPrefix) {
+                        const blockText = (activeBlock.innerText || activeBlock.textContent || "").replace(/\s+/g, " ").trim();
+                        if (!blockText.includes(cleanPrefix)) {
+                            let prev = activeBlock.previousElementSibling;
+                            while (prev) {
+                                const pText = (prev.innerText || prev.textContent || "").replace(/\s+/g, " ").trim();
+                                if (pText.includes(cleanPrefix)) {
+                                    activeBlock = prev;
+                                    transBox._targetParagraph = prev;
+                                    break;
+                                }
+                                prev = prev.previousElementSibling;
+                            }
+                        }
+                    }
+
+                    const speechMap = buildParagraphSpeechMap(activeBlock);
                     let offsetInParagraph = 0;
+                    let isTextMatchedInBlock = false;
                     if (speechMap && speechMap.fullText) {
-                        const idx = speechMap.fullText.indexOf(cleanEnglish);
+                        const normFull = speechMap.fullText.replace(/\s+/g, " ");
+                        const normClean = cleanEnglish.replace(/\s+/g, " ");
+                        const idx = normFull.indexOf(normClean);
                         if (idx >= 0) {
                             offsetInParagraph = idx;
+                            isTextMatchedInBlock = true;
+                        } else {
+                            const firstFewWords = normClean.split(" ").slice(0, 3).join(" ");
+                            const subIdx = normFull.indexOf(firstFewWords);
+                            if (subIdx >= 0) {
+                                offsetInParagraph = subIdx;
+                                isTextMatchedInBlock = true;
+                            }
                         }
                     }
 
@@ -2614,7 +2669,7 @@
                                             selectCleanBtn.textContent = total > 1 ? `⏹ 停止Siri (${curr}/${total})` : `⏹ 停止Siri`;
                                             clearSpeechHighlights();
                                         } else if (data.type === "word") {
-                                            if (speechMap && data.char_index >= 0) {
+                                            if (isTextMatchedInBlock && speechMap && data.char_index >= 0) {
                                                 applySpeechHighlight(
                                                     speechMap,
                                                     offsetInParagraph,
@@ -2713,12 +2768,29 @@
                     return;
                 }
 
-                if (!window.speechSynthesis) return;
-
-                const speechMap = buildParagraphSpeechMap(targetParagraph);
+                let activeBlock = transBox._targetParagraph || targetParagraph;
                 const baseText = transBox._currentEnglishText || textToTranslate;
+                const cleanPrefix = (baseText || "").replace(/\s+/g, " ").trim().slice(0, Math.min(baseText.length, 25));
+                if (activeBlock && cleanPrefix) {
+                    const blockText = (activeBlock.innerText || activeBlock.textContent || "").replace(/\s+/g, " ").trim();
+                    if (!blockText.includes(cleanPrefix)) {
+                        let prev = activeBlock.previousElementSibling;
+                        while (prev) {
+                            const pText = (prev.innerText || prev.textContent || "").replace(/\s+/g, " ").trim();
+                            if (pText.includes(cleanPrefix)) {
+                                activeBlock = prev;
+                                transBox._targetParagraph = prev;
+                                break;
+                            }
+                            prev = prev.previousElementSibling;
+                        }
+                    }
+                }
+
+                const speechMap = buildParagraphSpeechMap(activeBlock);
                 let textToSpeak = baseText;
                 let offsetInParagraph = 0;
+                let isTextMatchedInBlock = false;
 
                 if (speechMap && speechMap.fullText) {
                     const trimmedBase = (baseText || "").trim();
@@ -2728,9 +2800,7 @@
                             offsetInParagraph = speechMap.fullText.indexOf(trimmedBase);
                             if (offsetInParagraph < 0) offsetInParagraph = 0;
                         }
-                    } else if (cleanFull) {
-                        textToSpeak = speechMap.fullText;
-                        offsetInParagraph = 0;
+                        isTextMatchedInBlock = true;
                     }
                 }
 
@@ -2756,7 +2826,7 @@
                         }, 10000);
                     };
 
-                    if (_hasHighlightSupport && speechMap && speechMap.charMap.length) {
+                    if (_hasHighlightSupport && isTextMatchedInBlock && speechMap && speechMap.charMap.length) {
                         utter.onboundary = (bev) => {
                             if (!isSpeaking) return;
                             if (bev.name && bev.name !== "word") return;
@@ -2807,6 +2877,7 @@
         }
 
         transBox._currentEnglishText = textToTranslate;
+        transBox._targetParagraph = targetParagraph;
         const contentEl = transBox.querySelector(".isa-trans-content");
         const retryBtn = transBox.querySelector(".isa-trans-btn.retry");
 
@@ -2973,7 +3044,7 @@
             e.stopPropagation();
             removeTriggerBtn();
             const textToTranslate = range.toString().trim();
-            const targetParagraph = findParagraphContainer(range);
+            const targetParagraph = findParagraphContainer(range, textToTranslate);
             const fallbackText = targetParagraph ? targetParagraph.innerText.trim() : "";
             const cleanSel = textToTranslate.replace(/\s+/g, " ").trim();
             const selWords = cleanSel.match(/[a-zA-Z\'-]+/g) || [];
