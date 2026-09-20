@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.0.1
+// @version      2.0.2
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -1316,25 +1316,12 @@
                 line-height: 1.65 !important;
             }
             .isa-breakdown-header {
-                display: flex !important;
-                align-items: center !important;
-                justify-content: space-between !important;
+                display: block !important;
                 margin-bottom: 6px !important;
                 font-size: 12px !important;
-            }
-            .isa-model-badge {
-                display: inline-flex !important;
-                align-items: center !important;
-                font-size: 11px !important;
+                color: #64748b !important;
                 font-weight: 500 !important;
-                line-height: 1 !important;
                 user-select: none !important;
-            }
-            .isa-model-badge.gemini {
-                color: #6366f1 !important;
-            }
-            .isa-model-badge.zhipu {
-                color: #10b981 !important;
             }
             .isa-breakdown-loading {
                 color: #64748b !important;
@@ -3372,12 +3359,8 @@
 
                     const SUB_ICON_SVG = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="18" r="3"></circle><path d="M6 9v3a3 3 0 0 0 3 3h6"></path></svg>`;
 
-                    const isGemini = source === "gemini";
-                    const badgeHtml = isGemini
-                        ? `<span class="isa-model-badge gemini" title="当前由 Google Gemini 提供语块解构">Gemini</span>`
-                        : `<span class="isa-model-badge zhipu" title="当前由智谱 GLM-4-Flash 提供语块解构">智谱 AI</span>`;
-
-                    let html = `<div class="isa-breakdown-header"><span style="color:#64748b;font-weight:500;">📖 核心语块深度解构</span>${badgeHtml}</div>`;
+                    const modelName = source === "gemini" ? "Gemini" : "智谱 AI";
+                    let html = `<div class="isa-breakdown-header">📖 核心语块深度解构（${modelName}）</div>`;
                     html += `<ul class="isa-breakdown-list">`;
                     items.forEach(c => {
                         const enPart = (c.en || c.chunk || "").trim();
