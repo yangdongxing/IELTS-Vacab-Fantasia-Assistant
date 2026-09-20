@@ -13,8 +13,8 @@
 ## 🎬 功能演示录屏
 
 <div align="center">
-  <video src="https://github.com/yangdongxing/IELTS-Vacab-Fantasia-Assistant/raw/main/data/IELTS-assistant-sample.mp4" controls="controls" width="100%" style="max-width: 720px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.15);">
-    您的浏览器不支持直接内嵌播放，请 <a href="https://github.com/yangdongxing/IELTS-Vacab-Fantasia-Assistant/raw/main/data/IELTS-assistant-sample.mp4">点击此处直接观看演示录屏</a>。
+  <video src="https://github.com/user-attachments/assets/b5072bff-b974-4762-8b43-abb05c8501de" controls="controls" autoplay="autoplay" muted="muted" loop="loop" width="100%" style="max-width: 720px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.15);">
+    您的浏览器不支持直接播放，请 <a href="https://github.com/user-attachments/assets/b5072bff-b974-4762-8b43-abb05c8501de">点击此处直接观看演示录屏</a>。
   </video>
 </div>
 
@@ -202,8 +202,7 @@ IELTS-Vacab-Fantasia-Assistant/
 ├── server.py                       # 极简 macOS Siri 语音中继服务（可选）
 ├── start.command                   # 双击一键启动 Siri 语音服务
 ├── data/
-│   ├── dictionary.json             # 词库数据（3631 词）
-│   └── IELTS-assistant-sample.mp4  # 功能演示录屏（65 秒高清）
+│   └── dictionary.json             # 词库数据（3631 词）
 └── tampermonkey/                   # 油猴脚本
     ├── tampermonkey.user.js        # 核心用户脚本（双层 AI 解构 + 实时音词高亮朗读）
     ├── test.html                   # 功能测试页
