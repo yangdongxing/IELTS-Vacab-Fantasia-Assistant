@@ -511,39 +511,50 @@
             if (!gmStats && !localStats) {
                 return { summary: { marks: 0, modalOpens: 0, inputSuccess: 0 }, words: {} };
             }
-            if (!gmStats) return localStats;
-            if (!localStats) return gmStats;
 
             // Merge GM stats and local storage stats seamlessly
             const merged = {
                 summary: { marks: 0, modalOpens: 0, inputSuccess: 0 },
-                words: { ...(gmStats.words || {}) }
+                words: { ...(gmStats?.words || {}) }
             };
-            Object.keys(localStats.words || {}).forEach(k => {
-                const incoming = localStats.words[k];
-                const existing = merged.words[k];
-                if (!existing || (incoming.lastUpdated || 0) >= (existing.lastUpdated || 0)) {
-                    merged.words[k] = incoming;
-                } else {
-                    existing.marks = Math.max(existing.marks || 0, incoming.marks || 0);
-                    existing.modalOpens = Math.max(existing.modalOpens || 0, incoming.modalOpens || 0);
-                    existing.inputSuccess = Math.max(existing.inputSuccess || 0, incoming.inputSuccess || 0);
-                    if (incoming.firstAdded && (!existing.firstAdded || incoming.firstAdded < existing.firstAdded)) {
-                        existing.firstAdded = incoming.firstAdded;
+            if (localStats && localStats.words) {
+                Object.keys(localStats.words).forEach(k => {
+                    const incoming = localStats.words[k];
+                    const existing = merged.words[k];
+                    if (!existing || (incoming.lastUpdated || 0) >= (existing.lastUpdated || 0)) {
+                        merged.words[k] = incoming;
+                    } else {
+                        existing.marks = Math.max(existing.marks || 0, incoming.marks || 0);
+                        existing.modalOpens = Math.max(existing.modalOpens || 0, incoming.modalOpens || 0);
+                        existing.inputSuccess = Math.max(existing.inputSuccess || 0, incoming.inputSuccess || 0);
+                        if (incoming.firstAdded && (!existing.firstAdded || incoming.firstAdded < existing.firstAdded)) {
+                            existing.firstAdded = incoming.firstAdded;
+                        }
                     }
-                }
-            });
+                });
+            }
 
+            let dirty = false;
             let totalMarks = 0, totalModal = 0, totalSuccess = 0;
             Object.values(merged.words).forEach(w => {
+                if (!w || typeof w !== "object") return;
+                // 一次性用 lastUpdated 补足缺失的独立字段 firstAdded 并持久化
+                if (!w.firstAdded) {
+                    w.firstAdded = w.lastUpdated || Date.now();
+                    dirty = true;
+                }
                 if (w.modalOpens > 0 && (w.inputSuccess || 0) > w.modalOpens) {
                     w.inputSuccess = w.modalOpens;
+                    dirty = true;
                 }
                 totalMarks += (w.marks || 0);
                 totalModal += (w.modalOpens || 0);
                 totalSuccess += (w.inputSuccess || 0);
             });
             merged.summary = { marks: totalMarks, modalOpens: totalModal, inputSuccess: totalSuccess };
+            if (dirty) {
+                saveStats(merged);
+            }
             return merged;
         }
 
@@ -1267,6 +1278,12 @@
                             existing.inputSuccess = Math.max(existing.inputSuccess || 0, incoming.inputSuccess || 0);
                             if (existing.modalOpens > 0 && existing.inputSuccess > existing.modalOpens) {
                                 existing.inputSuccess = existing.modalOpens;
+                            }
+                            if (incoming.firstAdded && (!existing.firstAdded || incoming.firstAdded < existing.firstAdded)) {
+                                existing.firstAdded = incoming.firstAdded;
+                            }
+                            if (!existing.firstAdded) {
+                                existing.firstAdded = existing.lastUpdated || incoming.firstAdded || incoming.lastUpdated || Date.now();
                             }
                             existing.lastUpdated = Math.max(existing.lastUpdated || 0, incoming.lastUpdated || 0);
                             mergedCount++;

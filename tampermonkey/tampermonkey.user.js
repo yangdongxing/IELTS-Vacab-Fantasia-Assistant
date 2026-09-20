@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.0.3
+// @version      2.0.4
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -749,19 +749,29 @@
         }
         if (!stats) return { summary: { marks: 0, modalOpens: 0, inputSuccess: 0 }, words: {} };
 
-        // Data sanitization & self-healing: sanitize any legacy corrupted records where inputSuccess > modalOpens
+        // Data sanitization & self-healing: sanitize any legacy corrupted records where inputSuccess > modalOpens,
+        // and backfill any missing firstAdded with lastUpdated
         if (stats.words && typeof stats.words === "object") {
             let totalMarks = 0, totalModal = 0, totalSuccess = 0;
+            let dirty = false;
             Object.values(stats.words).forEach(entry => {
                 if (!entry || typeof entry !== "object") return;
+                if (!entry.firstAdded) {
+                    entry.firstAdded = entry.lastUpdated || Date.now();
+                    dirty = true;
+                }
                 if (entry.modalOpens > 0 && (entry.inputSuccess || 0) > entry.modalOpens) {
                     entry.inputSuccess = entry.modalOpens;
+                    dirty = true;
                 }
                 totalMarks += (entry.marks || 0);
                 totalModal += (entry.modalOpens || 0);
                 totalSuccess += (entry.inputSuccess || 0);
             });
             stats.summary = { marks: totalMarks, modalOpens: totalModal, inputSuccess: totalSuccess };
+            if (dirty) {
+                saveStats(stats);
+            }
         }
         return stats;
     }
@@ -956,12 +966,25 @@
                         gmItem.marks = Math.max(gmItem.marks || 0, localItem.marks || 0);
                         gmItem.modalOpens = Math.max(gmItem.modalOpens || 0, localItem.modalOpens || 0);
                         gmItem.inputSuccess = Math.max(gmItem.inputSuccess || 0, localItem.inputSuccess || 0);
+                        if (localItem.firstAdded && (!gmItem.firstAdded || localItem.firstAdded < gmItem.firstAdded)) {
+                            gmItem.firstAdded = localItem.firstAdded;
+                        }
                     }
                 });
             }
 
             let totalMarks = 0, totalModal = 0, totalSuccess = 0;
+            let needsBackfill = false;
             Object.values(merged.words).forEach(w => {
+                if (!w || typeof w !== "object") return;
+                if (!w.firstAdded) {
+                    w.firstAdded = w.lastUpdated || Date.now();
+                    needsBackfill = true;
+                }
+                if (w.modalOpens > 0 && (w.inputSuccess || 0) > w.modalOpens) {
+                    w.inputSuccess = w.modalOpens;
+                    needsBackfill = true;
+                }
                 totalMarks += (w.marks || 0);
                 totalModal += (w.modalOpens || 0);
                 totalSuccess += (w.inputSuccess || 0);
@@ -969,7 +992,7 @@
             merged.summary = { marks: totalMarks, modalOpens: totalModal, inputSuccess: totalSuccess };
 
             localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(merged));
-            if (hasNewFromLocal) {
+            if (hasNewFromLocal || needsBackfill) {
                 saveStats(merged);
             }
             window.dispatchEvent(new CustomEvent("ielts_stats_loaded_from_tampermonkey", { detail: merged }));
