@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.9.5
+// @version      1.9.6
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
 // @match        file:///*
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      127.0.0.1
@@ -15,6 +16,7 @@
 // @connect      translate.googleapis.com
 // @connect      api.mymemory.translated.net
 // @connect      open.bigmodel.cn
+// @connect      generativelanguage.googleapis.com
 // @connect      *
 // @run-at       document-end
 // ==/UserScript==
@@ -1312,6 +1314,34 @@
                 border-top: none !important;
                 font-size: 13.5px !important;
                 line-height: 1.65 !important;
+            }
+            .isa-breakdown-header {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                margin-bottom: 6px !important;
+                font-size: 12px !important;
+            }
+            .isa-model-badge {
+                display: inline-flex !important;
+                align-items: center !important;
+                gap: 4px !important;
+                padding: 1px 7px !important;
+                border-radius: 9999px !important;
+                font-size: 11px !important;
+                font-weight: 600 !important;
+                letter-spacing: 0.2px !important;
+                border: 1px solid transparent !important;
+            }
+            .isa-model-badge.gemini {
+                background: #eef2ff !important;
+                color: #4338ca !important;
+                border-color: #c7d2fe !important;
+            }
+            .isa-model-badge.zhipu {
+                background: #f0fdf4 !important;
+                color: #15803d !important;
+                border-color: #bbf7d0 !important;
             }
             .isa-breakdown-loading {
                 color: #64748b !important;
@@ -2666,6 +2696,16 @@
 
     const ZHIPU_API_KEY_DEFAULT = "453806761358446aba219751fa9ff97d.Pe3UBuEiNTj0rSNY";
 
+    function getGeminiApiKey() {
+        try {
+            if (typeof GM_getValue === "function") {
+                const stored = GM_getValue("isa_gemini_api_key", "");
+                if (stored && stored.trim()) return stored.trim();
+            }
+        } catch (e) {}
+        return "";
+    }
+
     function getZhipuApiKey() {
         try {
             if (typeof GM_getValue === "function") {
@@ -2676,17 +2716,89 @@
         return ZHIPU_API_KEY_DEFAULT;
     }
 
-    function analyzeSentenceChunks(text) {
+    // Google Gemini 1.5 Flash API Caller
+    function requestGeminiGeneration(prompt, systemInstruction = "", maxTokens = 600) {
         return new Promise((resolve, reject) => {
-            const apiKey = getZhipuApiKey();
+            const apiKey = getGeminiApiKey();
             if (!apiKey) {
-                return reject(new Error("未配置智谱 API Key"));
+                return reject(new Error("Gemini API Key 未配置"));
             }
 
-            const cleanText = (text || "").trim();
-            if (!cleanText) {
-                return reject(new Error("分析文本为空"));
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+            const payload = {
+                contents: [
+                    {
+                        role: "user",
+                        parts: [{ text: prompt }]
+                    }
+                ],
+                generationConfig: {
+                    temperature: 0.1,
+                    maxOutputTokens: maxTokens,
+                    responseMimeType: "application/json"
+                }
+            };
+
+            if (systemInstruction) {
+                payload.systemInstruction = {
+                    parts: [{ text: systemInstruction }]
+                };
             }
+
+            const reqData = JSON.stringify(payload);
+
+            const handleSuccess = (respText) => {
+                try {
+                    const data = JSON.parse(respText);
+                    const candidate = data.candidates && data.candidates[0];
+                    const rawContent = candidate && candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text;
+                    if (!rawContent) {
+                        return reject(new Error("Gemini 模型未返回内容"));
+                    }
+                    const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+                    const parsed = JSON.parse(cleanJsonStr);
+                    const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
+                    resolve(items);
+                } catch (e) {
+                    reject(e);
+                }
+            };
+
+            if (typeof GM_xmlhttpRequest === "function") {
+                GM_xmlhttpRequest({
+                    method: "POST",
+                    url: url,
+                    headers: { "Content-Type": "application/json" },
+                    data: reqData,
+                    timeout: 25000,
+                    onload: (res) => {
+                        if (res.status >= 200 && res.status < 300) {
+                            handleSuccess(res.responseText);
+                        } else {
+                            reject(new Error("Gemini API 返回错误状态: " + res.status));
+                        }
+                    },
+                    ontimeout: () => reject(new Error("Gemini 请求超时")),
+                    onerror: (err) => reject(err)
+                });
+            } else {
+                fetch(url, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: reqData
+                })
+                    .then(r => r.text())
+                    .then(handleSuccess)
+                    .catch(reject);
+            }
+        });
+    }
+
+    // 智谱 GLM-4-Flash 宏观语块解构
+    function analyzeSentenceChunksViaZhipu(cleanText) {
+        return new Promise((resolve, reject) => {
+            const apiKey = getZhipuApiKey();
+            if (!apiKey) return reject(new Error("未配置智谱 API Key"));
 
             const payload = {
                 model: "glm-4-flash",
@@ -2695,10 +2807,7 @@
                         role: "system",
                         content: "你是英语长难句与学术阅读语块拆解专家。请将输入的英文句子拆解为3-5个关键语义语块，并以中文通俗讲解其背景与原理解析。请直接以JSON数组输出：\n[\n  {\"en\": \"英文核心语块\", \"zh\": \"中文词义\", \"exp\": \"指的是.../说明.../原理解释\"}\n]\n不要包含```json标记或多余闲聊，只输出JSON数组。"
                     },
-                    {
-                        role: "user",
-                        content: cleanText
-                    }
+                    { role: "user", content: cleanText }
                 ],
                 max_tokens: 500,
                 temperature: 0.1
@@ -2711,10 +2820,7 @@
                 try {
                     const data = JSON.parse(respText);
                     const rawContent = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-                    if (!rawContent) {
-                        return reject(new Error("模型未返回内容"));
-                    }
-                    // Strip optional markdown fencing if model outputs ```json ... ```
+                    if (!rawContent) return reject(new Error("模型未返回内容"));
                     const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
                     const parsed = JSON.parse(cleanJsonStr);
                     const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
@@ -2738,7 +2844,7 @@
                         if (res.status >= 200 && res.status < 300) {
                             handleSuccess(res.responseText);
                         } else {
-                            reject(new Error("API 请求失败: " + res.status));
+                            reject(new Error("智谱 API 请求失败: " + res.status));
                         }
                     },
                     ontimeout: () => reject(new Error("请求超时（网络响应较慢，可点击🔄重试）")),
@@ -2760,17 +2866,30 @@
         });
     }
 
-    function analyzeSubChunk(text) {
+    // 智能调度：优先 Gemini，失败或未配置时自动降级到智谱
+    function analyzeSentenceChunks(text) {
+        const cleanText = (text || "").trim();
+        if (!cleanText) return Promise.reject(new Error("分析文本为空"));
+
+        const geminiKey = getGeminiApiKey();
+        if (geminiKey) {
+            const systemPrompt = "你是英语长难句与学术阅读语块拆解专家。请将输入的英文句子拆解为3-5个关键语义语块，并以中文通俗讲解其背景与原理解析。请直接以JSON数组输出：\n[\n  {\"en\": \"英文核心语块\", \"zh\": \"中文词义\", \"exp\": \"指的是.../说明.../原理解释\"}\n]\n只输出纯JSON数组。";
+            return requestGeminiGeneration(cleanText, systemPrompt, 550)
+                .then(items => ({ items, source: "gemini" }))
+                .catch(err => {
+                    console.warn("[ISA] Gemini analyzeSentenceChunks failed, fallback to Zhipu:", err);
+                    return analyzeSentenceChunksViaZhipu(cleanText).then(items => ({ items, source: "zhipu" }));
+                });
+        }
+
+        return analyzeSentenceChunksViaZhipu(cleanText).then(items => ({ items, source: "zhipu" }));
+    }
+
+    // 智谱 GLM-4-Flash 深度微观子语块解构
+    function analyzeSubChunkViaZhipu(cleanText) {
         return new Promise((resolve, reject) => {
             const apiKey = getZhipuApiKey();
-            if (!apiKey) {
-                return reject(new Error("未配置智谱 API Key"));
-            }
-
-            const cleanText = (text || "").trim();
-            if (!cleanText) {
-                return reject(new Error("分析语块为空"));
-            }
+            if (!apiKey) return reject(new Error("未配置智谱 API Key"));
 
             const payload = {
                 model: "glm-4-flash",
@@ -2779,10 +2898,7 @@
                         role: "system",
                         content: "你是英语长难句与深度短语解构专家。请将输入的英文短语/语块进一步深入解构为2-4个核心词汇搭配或最小语法单元，并用简明中文解释词义与语法作用。请直接以JSON数组输出：\n[\n  {\"en\": \"核心子语块/词组\", \"zh\": \"中文词义\", \"exp\": \"语法成分/用法说明\"}\n]\n不要包含```json标记或多余闲聊，只输出JSON数组。"
                     },
-                    {
-                        role: "user",
-                        content: cleanText
-                    }
+                    { role: "user", content: cleanText }
                 ],
                 max_tokens: 450,
                 temperature: 0.1
@@ -2795,9 +2911,7 @@
                 try {
                     const data = JSON.parse(respText);
                     const rawContent = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-                    if (!rawContent) {
-                        return reject(new Error("模型未返回内容"));
-                    }
+                    if (!rawContent) return reject(new Error("模型未返回内容"));
                     const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
                     const parsed = JSON.parse(cleanJsonStr);
                     const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
@@ -2841,6 +2955,24 @@
                     .catch(reject);
             }
         });
+    }
+
+    // 智能调度深度子解构：优先 Gemini，失败或未配置时自动降级到智谱
+    function analyzeSubChunk(text) {
+        const cleanText = (text || "").trim();
+        if (!cleanText) return Promise.reject(new Error("分析语块为空"));
+
+        const geminiKey = getGeminiApiKey();
+        if (geminiKey) {
+            const systemPrompt = "你是英语长难句与深度短语解构专家。请将输入的英文短语/语块进一步深入解构为2-4个核心词汇搭配或最小语法单元，并用简明中文解释词义与语法作用。请直接以JSON数组输出：\n[\n  {\"en\": \"核心子语块/词组\", \"zh\": \"中文词义\", \"exp\": \"语法成分/用法说明\"}\n]\n只输出纯JSON数组。";
+            return requestGeminiGeneration(cleanText, systemPrompt, 450)
+                .catch(err => {
+                    console.warn("[ISA] Gemini analyzeSubChunk failed, fallback to Zhipu:", err);
+                    return analyzeSubChunkViaZhipu(cleanText);
+                });
+        }
+
+        return analyzeSubChunkViaZhipu(cleanText);
     }
 
     function escapeBreakdownHtml(str) {
@@ -3199,15 +3331,23 @@
             breakdownContentEl.innerHTML = "";
 
             analyzeSentenceChunks(textToTranslate)
-                .then(res => {
-                    if (!res || !Array.isArray(res) || res.length === 0) {
+                .then(resultObj => {
+                    const items = Array.isArray(resultObj) ? resultObj : (resultObj.items || []);
+                    const source = resultObj.source || (getGeminiApiKey() ? "gemini" : "zhipu");
+                    if (!items || items.length === 0) {
                         return;
                     }
 
                     const SUB_ICON_SVG = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="18" r="3"></circle><path d="M6 9v3a3 3 0 0 0 3 3h6"></path></svg>`;
 
-                    let html = `<ul class="isa-breakdown-list">`;
-                    res.forEach(c => {
+                    const isGemini = source === "gemini";
+                    const badgeHtml = isGemini
+                        ? `<span class="isa-model-badge gemini" title="当前由 Google Gemini 1.5 Flash 提供语块解构">✨ Gemini 1.5</span>`
+                        : `<span class="isa-model-badge zhipu" title="当前由智谱 GLM-4-Flash 提供语块解构">🌟 智谱 AI</span>`;
+
+                    let html = `<div class="isa-breakdown-header"><span style="color:#64748b;font-weight:500;">📖 核心语块深度解构</span>${badgeHtml}</div>`;
+                    html += `<ul class="isa-breakdown-list">`;
+                    items.forEach(c => {
                         const enPart = (c.en || c.chunk || "").trim();
                         const zhPart = (c.zh || "").trim();
                         const expPart = (c.exp || c.explanation || "").trim();
@@ -3474,5 +3614,32 @@
             focusMemoryAnswer();
         }
     });
+
+
+    // Register Tampermonkey Menu Command to configure Gemini API Key
+    if (typeof GM_registerMenuCommand === "function") {
+        GM_registerMenuCommand("🔑 配置 Google Gemini API Key (长难句解构优先)", () => {
+            const currentKey = getGeminiApiKey();
+            const promptMsg = currentKey
+                ? `当前 Gemini API Key:\n${currentKey.slice(0, 8)}...${currentKey.slice(-6)}\n\n请输入新的 Gemini API Key（留空确认则清除并恢复使用智谱 AI）:`
+                : "请输入你的 Google Gemini API Key\n(配置后长难句分析将优先使用 Gemini 1.5 Flash，失败自动降级到智谱):";
+            const input = prompt(promptMsg, currentKey || "");
+            if (input !== null) {
+                const trimmed = input.trim();
+                if (typeof GM_setValue === "function") {
+                    try {
+                        GM_setValue("isa_gemini_api_key", trimmed);
+                        if (trimmed) {
+                            alert("✅ Gemini API Key 配置成功！长难句解构已优先启用 Google Gemini 1.5 Flash。");
+                        } else {
+                            alert("ℹ️ Gemini API Key 已清除，长难句解构将使用默认的智谱 AI。");
+                        }
+                    } catch (err) {
+                        alert("❌ 保存失败: " + err.message);
+                    }
+                }
+            }
+        });
+    }
 
 })();
