@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.0.7
+// @version      2.0.8
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -1347,17 +1347,25 @@
                 font-weight: 700 !important;
                 color: #0f172a !important;
             }
-            .isa-breakdown-en {
-                cursor: pointer !important;
-                border-bottom: none !important;
-                text-decoration: none !important;
-                border-radius: 2px !important;
-                padding: 0 1px !important;
+            .isa-breakdown-phrase {
+                cursor: default !important;
+                border-radius: 4px !important;
+                padding: 1px 4px !important;
+                margin: 0 -2px !important;
                 transition: background-color 0.15s ease, color 0.15s ease !important;
+                display: inline !important;
             }
-            .isa-breakdown-en:hover {
+            .isa-breakdown-phrase:hover {
                 background-color: rgba(2, 132, 199, 0.08) !important;
                 color: #0284c7 !important;
+            }
+            .isa-breakdown-phrase:hover .isa-breakdown-en {
+                color: #0284c7 !important;
+            }
+            .isa-breakdown-en {
+                cursor: default !important;
+                border-bottom: none !important;
+                text-decoration: none !important;
             }
             .isa-breakdown-desc {
                 color: #334155 !important;
@@ -3340,7 +3348,7 @@
 
                         html += `
                             <li class="isa-breakdown-item">
-                                <strong class="isa-breakdown-term"><span class="isa-breakdown-en" title="点击朗读">${escapeBreakdownHtml(enPart)}</span>${zhPart ? `（${escapeBreakdownHtml(zhPart)}）` : ""}${subBtnHtml}：</strong><span class="isa-breakdown-desc">${escapeBreakdownHtml(expPart)}</span>
+                                <strong class="isa-breakdown-term"><span class="isa-breakdown-phrase" title="点击朗读"><span class="isa-breakdown-en">${escapeBreakdownHtml(enPart)}</span>${zhPart ? `（${escapeBreakdownHtml(zhPart)}）` : ""}</span>${subBtnHtml}：</strong><span class="isa-breakdown-desc">${escapeBreakdownHtml(expPart)}</span>
                                 <div class="isa-breakdown-sub-container" style="display: none;"></div>
                             </li>
                         `;
@@ -3399,7 +3407,7 @@
                                     const subExp = (item.exp || item.explanation || "").trim();
                                     subHtml += `
                                         <li class="isa-breakdown-sub-item">
-                                            <strong class="isa-breakdown-term"><span class="isa-breakdown-en" title="点击朗读">${escapeBreakdownHtml(subEn)}</span>${subZh ? `（${escapeBreakdownHtml(subZh)}）` : ""}：</strong><span class="isa-breakdown-desc">${escapeBreakdownHtml(subExp)}</span>
+                                            <strong class="isa-breakdown-term"><span class="isa-breakdown-phrase" title="点击朗读"><span class="isa-breakdown-en">${escapeBreakdownHtml(subEn)}</span>${subZh ? `（${escapeBreakdownHtml(subZh)}）` : ""}</span>：</strong><span class="isa-breakdown-desc">${escapeBreakdownHtml(subExp)}</span>
                                         </li>
                                     `;
                                 });
@@ -3430,14 +3438,16 @@
                             return;
                         }
 
+                        const phraseEl = e.target.closest(".isa-breakdown-phrase");
                         const enEl = e.target.closest(".isa-breakdown-en");
                         const targetTerm = e.target.closest(".isa-breakdown-term");
-                        const finalEnEl = enEl || (targetTerm ? targetTerm.querySelector(".isa-breakdown-en") : null);
+                        const container = phraseEl || targetTerm;
+                        const finalEnEl = enEl || (container ? container.querySelector(".isa-breakdown-en") : null);
 
                         if (finalEnEl) {
                             e.stopPropagation();
 
-                            // 1. Select the English phrase immediately in the browser
+                            // 1. 仅在浏览器中高亮选中英文部分，提供视觉焦点反馈（不写入剪贴板，避免覆盖用户内容）
                             const enText = (finalEnEl.innerText || finalEnEl.textContent || "").trim();
                             const selection = window.getSelection();
                             if (selection) {
@@ -3447,7 +3457,7 @@
                                 selection.addRange(range);
                             }
 
-                            // 2. Read aloud: prioritized Siri with automatic browser voice fallback
+                            // 2. 朗读英文内容：优先 Siri，离线自动降级浏览器语音
                             if (enText) {
                                 playEnglishSpeech(enText);
                             }
