@@ -160,6 +160,29 @@
 
 ---
 
+## 🚀 本地语音中继服务 (可选 / 追求 macOS Siri 极致音质用户开启)
+
+> 💡 **提示**：本插件默认内置现代浏览器 Web Speech 自然语音引擎，**开箱即用，无需安装任何本地服务**，在 Windows / macOS / Linux 均能实现全自动发音与逐词高亮追踪。
+> 3,600+ 高清助记图已全部托管于全球高速 CDN (Cloudflare Workers)，学习打点数据由 Tampermonkey 原生独立沙盒存储（`GM_getValue`），无需任何本地数据库。
+
+若追求 macOS 系统级高品质 Siri 原生发音，可选用本项目附带的**零依赖本地中继服务**（`server.py`）：
+- **🎧 macOS 原生高保真 Siri 语音与毫秒级音词高亮流**：
+  - 点击段落卡片的 `[🎧 朗读段落]`，连续点击可按 **1 次 ➔ 3 次 ➔ 6 次 ➔ 10 次 ➔ 15 次** 阶梯设定循环次数，停顿后后台自动唤起系统原生高品质 Siri 连播；
+  - **实时音词高亮**：朗读过程中，macOS 底层 `say` 交互流通过 Server-Sent Events (SSE) 毫秒级推送发音游标，网页中使用 CSS Custom Highlight API 紧随发音聚焦逐词移动；多遍朗读之间自动平滑复位；
+  - **解构短语发音**：点击语块卡片的中英区域，同样支持逐词同步高亮发音；
+  - **全自动无缝降级**：若未启动本地服务，脚本会自动平滑降级至浏览器内置自然语音引擎，全自动播放，绝不破坏用户剪贴板！
+- **备用翻译代理**：在部分网络环境受限时，作为备用 Google / MyMemory 翻译代理。
+
+### 启动方式
+* **方式一（最推荐）**：在访达（Finder）中直接**双击 `start.command`**，系统将自动打开终端窗口运行服务。
+* **方式二（终端命令）**：
+  ```bash
+  python3 server.py
+  ```
+> 服务默认运行在 `http://127.0.0.1:8777`，已启用全域 CORS 通行支持。
+
+---
+
 ## 📊 数据统计大屏
 
 在线访问：[📊 stats.html →](https://yangdongxing.github.io/IELTS-Vacab-Fantasia-Assistant/tampermonkey/stats.html)
@@ -176,6 +199,8 @@
 IELTS-Vacab-Fantasia-Assistant/
 ├── index.html                      # GitHub Pages 导航首页
 ├── README.md                       # 项目说明文档
+├── server.py                       # 极简 macOS Siri 语音中继服务（可选）
+├── start.command                   # 双击一键启动 Siri 语音服务
 ├── data/
 │   ├── dictionary.json             # 词库数据（3631 词）
 │   └── sample.mp4                  # 演示录屏视频
