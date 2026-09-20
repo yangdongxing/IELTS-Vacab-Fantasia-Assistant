@@ -528,6 +528,9 @@
                     existing.marks = Math.max(existing.marks || 0, incoming.marks || 0);
                     existing.modalOpens = Math.max(existing.modalOpens || 0, incoming.modalOpens || 0);
                     existing.inputSuccess = Math.max(existing.inputSuccess || 0, incoming.inputSuccess || 0);
+                    if (incoming.firstAdded && (!existing.firstAdded || incoming.firstAdded < existing.firstAdded)) {
+                        existing.firstAdded = incoming.firstAdded;
+                    }
                 }
             });
 
@@ -907,6 +910,9 @@
             let totalSuccess = 0;
 
             allStatsWords.forEach(w => {
+                if (!w.firstAdded) {
+                    w.firstAdded = w.lastUpdated || 0;
+                }
                 totalMarks += (w.marks || 0);
                 totalModal += (w.modalOpens || 0);
                 totalSuccess += (w.inputSuccess || 0);
@@ -974,14 +980,16 @@
 
                 if (currentSort.field === "w") {
                     if (currentSort.wordMode === "newest") {
-                        const timeA = a.lastUpdated || 0;
-                        const timeB = b.lastUpdated || 0;
-                        if (timeA !== timeB) return timeB - timeA; // 最新新增在最前
+                        // 严格按照首次新增时间倒序（最近新加入的单词在最前）
+                        const timeA = a.firstAdded || a.lastUpdated || 0;
+                        const timeB = b.firstAdded || b.lastUpdated || 0;
+                        if (timeA !== timeB) return timeB - timeA;
                         return (a.w || "").localeCompare(b.w || "");
                     } else if (currentSort.wordMode === "oldest") {
-                        const timeA = a.lastUpdated || 0;
-                        const timeB = b.lastUpdated || 0;
-                        if (timeA !== timeB) return timeA - timeB; // 最早新增在最前
+                        // 严格按照首次新增时间正序（最早加入的生词在最前）
+                        const timeA = a.firstAdded || a.lastUpdated || 0;
+                        const timeB = b.firstAdded || b.lastUpdated || 0;
+                        if (timeA !== timeB) return timeA - timeB;
                         return (a.w || "").localeCompare(b.w || "");
                     } else if (currentSort.wordMode === "alpha_desc") {
                         // 字母 Z-A 逆字典序
@@ -1003,26 +1011,26 @@
 
             currentTableWords = filtered;
 
-            // Update Word column header indicator
+            // Update Word column header indicator (no arrows, clean descriptive text)
             const wordTh = document.querySelector('thead th[data-sort="w"]');
             if (wordTh) {
                 if (currentSort.field === "w") {
                     if (currentSort.wordMode === "newest") {
-                        wordTh.innerHTML = '单词 (Word) <span style="font-size:11px;color:#0284c7;font-weight:600;">[最新 ↓]</span>';
-                        wordTh.title = "当前：最新新增在最前。点击切换为「最早新增在最前」";
+                        wordTh.innerHTML = '单词 (Word) <span style="font-size:11px;color:#0284c7;font-weight:600;">[最新]</span>';
+                        wordTh.title = "当前：按新增时间从新到旧排列。点击切换为「按最早新增」";
                     } else if (currentSort.wordMode === "oldest") {
-                        wordTh.innerHTML = '单词 (Word) <span style="font-size:11px;color:#0284c7;font-weight:600;">[最早 ↑]</span>';
-                        wordTh.title = "当前：最早新增在最前。点击切换为「A-Z 排序」";
+                        wordTh.innerHTML = '单词 (Word) <span style="font-size:11px;color:#0284c7;font-weight:600;">[最早]</span>';
+                        wordTh.title = "当前：按新增时间从旧到新排列。点击切换为「A-Z 字典序」";
                     } else if (currentSort.wordMode === "alpha_desc") {
                         wordTh.innerHTML = '单词 (Word) <span style="font-size:11px;color:#0284c7;font-weight:600;">[Z-A]</span>';
-                        wordTh.title = "当前：Z-A 降序。点击切换为「最新新增在最前」";
+                        wordTh.title = "当前：字母 Z-A 倒序。点击切换为「按最新新增」";
                     } else {
                         wordTh.innerHTML = '单词 (Word) <span style="font-size:11px;color:#0284c7;font-weight:600;">[A-Z]</span>';
-                        wordTh.title = "当前：A-Z 升序。点击切换为「Z-A 排序」";
+                        wordTh.title = "当前：字母 A-Z 升序。点击切换为「Z-A 字典序」";
                     }
                 } else {
                     wordTh.innerHTML = '单词 (Word) ⇅';
-                    wordTh.title = "点击按「最新 ↓ ➔ 最早 ↑ ➔ A-Z ➔ Z-A」循环排序";
+                    wordTh.title = "点击按「最新 ➔ 最早 ➔ A-Z ➔ Z-A」循环排序";
                 }
             }
 
@@ -1209,6 +1217,7 @@
                     marks: typeof item === "object" ? (Number(item.marks) || 0) : 1,
                     modalOpens: modalOpens,
                     inputSuccess: inputSuccess,
+                    firstAdded: typeof item === "object" && item.firstAdded ? Number(item.firstAdded) : (typeof item === "object" && item.lastUpdated ? Number(item.lastUpdated) : Date.now()),
                     lastUpdated: typeof item === "object" && item.lastUpdated ? Number(item.lastUpdated) : Date.now()
                 };
             });
