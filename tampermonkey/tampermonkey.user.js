@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.0.6
+// @version      2.0.7
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -356,7 +356,6 @@
     const stopSiriPlayback = stopAllSpeech;
     const stopModalSpeech = stopAllSpeech;
     const stopModalExampleSpeech = stopAllSpeech;
-    const stopSpeaking = stopAllSpeech;
 
     function startSiriPlayback(text, count = 1) {
         return fetch("http://127.0.0.1:8777/api/siri_speak", {
@@ -628,11 +627,6 @@
         }
     }
     const speakWithSiriPriority = (text, onEnd) => playEnglishSpeech(text, { onEnd });
-    const speakExampleWithSiriPriority = (en, zh) => playBilingualSpeech(en, zh, {
-        element: (typeof memoryModalRefs !== "undefined" && memoryModalRefs) ? memoryModalRefs.exampleEnglish : null,
-        zhElement: (typeof memoryModalRefs !== "undefined" && memoryModalRefs) ? memoryModalRefs.exampleChinese : null,
-        condition: isMemoryModalOpen
-    });
     const speakBilingualWithSiriPriority = (en, zh, type = "word") => {
         const isWord = type === "word";
         playBilingualSpeech(en, zh, {
@@ -641,7 +635,6 @@
             condition: isMemoryModalOpen
         });
     };
-    const speakBilingualExample = (en, zh) => playBilingualSpeech(en, zh, { condition: isMemoryModalOpen });
 
     const POS_SPEECH_MAP = {
         n: "名词",
@@ -2659,7 +2652,6 @@
         return startNode && startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : (startNode || range.commonAncestorContainer);
     }
 
-    let lastActiveSelectCleanBtn = null;
     const REPEAT_STEPS = [1, 3, 6, 10, 15];
 
     function resetAllParagraphSpeakBtns(exceptBtn = null) {
@@ -2676,7 +2668,6 @@
             }
         });
     }
-    const resetAllSelectCleanBtns = resetAllParagraphSpeakBtns;
 
     const ZHIPU_API_KEY_DEFAULT = "453806761358446aba219751fa9ff97d.Pe3UBuEiNTj0rSNY";
 
@@ -2700,7 +2691,7 @@
         return ZHIPU_API_KEY_DEFAULT;
     }
 
-    // Google Gemini API Caller (supports fallback candidates: gemini-1.5-flash-latest -> gemini-1.5-flash -> gemini-2.0-flash)
+    // Google Gemini API Caller (supports fallback candidates: gemini-3.6-flash -> gemini-2.5-flash -> gemini-2.5-pro -> gemini-1.5-flash)
     function requestGeminiGeneration(prompt, systemInstruction = "", maxTokens = 600) {
         const apiKey = getGeminiApiKey();
         if (!apiKey) {
@@ -3072,31 +3063,6 @@
         return { fullText, charMap };
     }
 
-    function findSentenceBoundaries(text, charIndex) {
-        if (!text) return { start: 0, end: 0 };
-        const abbrevs = /\b(?:Dr|Mr|Mrs|Ms|Prof|Sr|Jr|vs|etc|e\.g|i\.e)\.$/i;
-        let start = 0;
-        const sentenceEndRegex = /[.!?]+(?=[\s"'\u201d\u2019]+[A-Z0-9]|$)/g;
-        let match;
-        let lastEnd = 0;
-        while ((match = sentenceEndRegex.exec(text)) !== null) {
-            const periodIdx = match.index + match[0].length;
-            const subBefore = text.slice(lastEnd, periodIdx);
-            if (abbrevs.test(subBefore.trim())) {
-                continue;
-            }
-            if (periodIdx <= charIndex) {
-                start = periodIdx;
-                while (start < text.length && /\s/.test(text[start])) {
-                    start++;
-                }
-            } else {
-                return { start, end: periodIdx };
-            }
-            lastEnd = periodIdx;
-        }
-        return { start, end: text.length };
-    }
 
     function applySpeechHighlight(speechMap, offsetInParagraph, localIdx, wordLen, rawWord) {
         if (!_hasHighlightSupport || !speechMap || !speechMap.charMap.length) return;
@@ -3641,7 +3607,7 @@
             const currentKey = getGeminiApiKey();
             const promptMsg = currentKey
                 ? `当前 Gemini API Key:\n${currentKey.slice(0, 8)}...${currentKey.slice(-6)}\n\n请输入新的 Gemini API Key（留空确认则清除并恢复使用智谱 AI）:`
-                : "请输入你的 Google Gemini API Key\n(配置后长难句分析将优先使用 Gemini 1.5 Flash，失败自动降级到智谱):";
+                : "请输入你的 Google Gemini API Key\n(配置后长难句分析将优先使用 Gemini 最新旗舰模型，失败自动降级到智谱):";
             const input = prompt(promptMsg, currentKey || "");
             if (input !== null) {
                 const trimmed = input.trim();
@@ -3649,7 +3615,7 @@
                     try {
                         GM_setValue("isa_gemini_api_key", trimmed);
                         if (trimmed) {
-                            alert("✅ Gemini API Key 配置成功！长难句解构已优先启用 Google Gemini 1.5 Flash。");
+                            alert("✅ Gemini API Key 配置成功！长难句解构已优先启用 Google Gemini 旗舰模型。");
                         } else {
                             alert("ℹ️ Gemini API Key 已清除，长难句解构将使用默认的智谱 AI。");
                         }

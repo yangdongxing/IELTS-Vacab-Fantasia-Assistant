@@ -560,11 +560,6 @@
             } catch (e) {}
         }
 
-        function trackWordEvent(word, eventType) {
-            // Telemetry recording is completely disabled on stats dashboard page
-            return;
-        }
-
         // ==========================================
         // Voice Synthesis Engine
         // ==========================================
@@ -700,10 +695,9 @@
 
 
         // ==========================================
-        // Remote & Local Image Helpers
+        // Remote Image Helpers
         // ==========================================
         const REMOTE_IMAGE_BASE = "https://ielts-vacab-fantasia-images.yangdongxing.workers.dev/";
-        const LOCAL_IMAGE_BASE = "http://127.0.0.1:8777/";
 
         function getImageUrl(word) {
             if (!word) return "";
@@ -711,18 +705,11 @@
             return REMOTE_IMAGE_BASE + encodeURIComponent(capWord) + ".jpg";
         }
 
-        function setupImageFallback(imgElement, word) {
-            if (!imgElement || !word) return;
-            const capWord = word.charAt(0).toUpperCase() + word.slice(1);
-            const encoded = encodeURIComponent(capWord) + ".jpg";
-
+        function setupImageFallback(imgElement) {
+            if (!imgElement) return;
             imgElement.onerror = function() {
-                if (imgElement.src.startsWith(REMOTE_IMAGE_BASE)) {
-                    imgElement.src = LOCAL_IMAGE_BASE + encoded;
-                    imgElement.onerror = function() {
-                        imgElement.style.opacity = "0.2";
-                    };
-                }
+                imgElement.classList.add("is-missing");
+                imgElement.style.opacity = "0.2";
             };
         }
 
@@ -736,17 +723,8 @@
             if (preloadedImageCache.has(key)) return;
 
             const remoteUrl = getImageUrl(word);
-            const capWord = word.charAt(0).toUpperCase() + word.slice(1);
-            const localUrl = LOCAL_IMAGE_BASE + encodeURIComponent(capWord) + ".jpg";
-
             const img = new Image();
             preloadedImageCache.set(key, img);
-
-            img.onerror = () => {
-                const fallback = new Image();
-                preloadedImageCache.set(key, fallback);
-                fallback.src = localUrl;
-            };
             img.src = remoteUrl;
         }
 
@@ -841,7 +819,7 @@
             const textSpan = bubble.querySelector(".geek-bubble-text");
 
             img.style.opacity = "";
-            setupImageFallback(img, word);
+            setupImageFallback(img);
             img.src = getImageUrl(word);
             img.alt = `${word} thumbnail`;
             textSpan.textContent = `(${entry.d})`;
