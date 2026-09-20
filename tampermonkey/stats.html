@@ -768,8 +768,10 @@
         // ==========================================
         // Hover Thumbnail Bubble Tips Implementation
         // ==========================================
-        let hoverBubbleTimer = null;
+        let hoverShowTimer = null;
+        let hoverHideTimer = null;
         let activeHoverWord = null;
+        let activeHoverTarget = null;
 
         function getOrCreateHoverBubble() {
             let bubble = document.getElementById("stats-hover-bubble");
@@ -784,14 +786,15 @@
                 document.body.appendChild(bubble);
 
                 bubble.addEventListener("mouseenter", () => {
-                    clearTimeout(hoverBubbleTimer);
+                    clearTimeout(hoverShowTimer);
+                    clearTimeout(hoverHideTimer);
                 });
                 bubble.addEventListener("mouseleave", (e) => {
                     const related = e.relatedTarget;
-                    if (related && related.closest && related.closest(".word-text")) {
+                    if (related && activeHoverTarget && (activeHoverTarget === related || activeHoverTarget.contains(related))) {
                         return;
                     }
-                    hideHoverBubble();
+                    hideHoverBubble(false);
                 });
 
                 const launchModalFromBubble = (e) => {
@@ -814,6 +817,7 @@
             if (!entry) return;
 
             activeHoverWord = word;
+            activeHoverTarget = targetEl;
             const bubble = getOrCreateHoverBubble();
             const img = bubble.querySelector(".geek-bubble-image");
             const textSpan = bubble.querySelector(".geek-bubble-text");
@@ -853,16 +857,19 @@
         }
 
         function hideHoverBubble(immediate = false) {
-            clearTimeout(hoverBubbleTimer);
+            clearTimeout(hoverShowTimer);
+            clearTimeout(hoverHideTimer);
             const bubble = document.getElementById("stats-hover-bubble");
             if (!bubble) return;
             if (immediate) {
                 bubble.classList.remove("is-visible");
                 activeHoverWord = null;
+                activeHoverTarget = null;
             } else {
-                hoverBubbleTimer = setTimeout(() => {
+                hoverHideTimer = setTimeout(() => {
                     bubble.classList.remove("is-visible");
                     activeHoverWord = null;
+                    activeHoverTarget = null;
                 }, 200);
             }
         }
@@ -1077,13 +1084,26 @@
         });
 
         document.getElementById("table-body").addEventListener("mouseover", (e) => {
-            const wordEl = e.target.closest(".word-text") || (e.target.classList && e.target.classList.contains("word-cell") ? e.target.querySelector(".word-text") : null);
+            const wordEl = e.target.closest(".word-text");
             if (wordEl) {
                 const word = wordEl.dataset.word;
                 if (word) {
-                    clearTimeout(hoverBubbleTimer);
+                    clearTimeout(hoverHideTimer);
+
+                    // If already active and visible on this exact word, no need to re-trigger
+                    if (activeHoverWord === word && document.getElementById("stats-hover-bubble")?.classList.contains("is-visible")) {
+                        return;
+                    }
+
+                    clearTimeout(hoverShowTimer);
                     preloadWordImage(word);
-                    showHoverBubble(word, wordEl);
+
+                    const isAlreadyVisible = document.getElementById("stats-hover-bubble")?.classList.contains("is-visible");
+                    const delay = isAlreadyVisible ? 120 : 300;
+
+                    hoverShowTimer = setTimeout(() => {
+                        showHoverBubble(word, wordEl);
+                    }, delay);
                 }
             }
         });
@@ -1091,11 +1111,25 @@
         document.getElementById("table-body").addEventListener("mouseout", (e) => {
             const wordEl = e.target.closest(".word-text");
             if (wordEl) {
+                clearTimeout(hoverShowTimer);
                 const related = e.relatedTarget;
                 if (related && (wordEl.contains(related) || document.getElementById("stats-hover-bubble")?.contains(related))) {
                     return;
                 }
-                hideHoverBubble();
+                hideHoverBubble(false);
+            }
+        });
+
+        const tableCard = document.querySelector(".table-card");
+        if (tableCard) {
+            tableCard.addEventListener("mouseleave", () => {
+                hideHoverBubble(true);
+            });
+        }
+
+        document.addEventListener("click", (e) => {
+            if (!document.getElementById("stats-hover-bubble")?.contains(e.target)) {
+                hideHoverBubble(true);
             }
         });
 
