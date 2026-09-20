@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.9.6
+// @version      1.9.7
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -2716,15 +2716,23 @@
         return ZHIPU_API_KEY_DEFAULT;
     }
 
-    // Google Gemini 1.5 Flash API Caller
+    // Google Gemini API Caller (supports fallback candidates: gemini-1.5-flash-latest -> gemini-1.5-flash -> gemini-2.0-flash)
     function requestGeminiGeneration(prompt, systemInstruction = "", maxTokens = 600) {
-        return new Promise((resolve, reject) => {
-            const apiKey = getGeminiApiKey();
-            if (!apiKey) {
-                return reject(new Error("Gemini API Key 未配置"));
+        const apiKey = getGeminiApiKey();
+        if (!apiKey) {
+            return Promise.reject(new Error("Gemini API Key 未配置"));
+        }
+
+        const candidateModels = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"];
+
+        function tryCallModel(index) {
+            if (index >= candidateModels.length) {
+                return Promise.reject(new Error("所有 Gemini 候选模型均返回错误"));
             }
 
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+            const modelName = candidateModels[index];
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
             const payload = {
                 contents: [
                     {
@@ -2747,51 +2755,70 @@
 
             const reqData = JSON.stringify(payload);
 
-            const handleSuccess = (respText) => {
-                try {
-                    const data = JSON.parse(respText);
-                    const candidate = data.candidates && data.candidates[0];
-                    const rawContent = candidate && candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text;
-                    if (!rawContent) {
-                        return reject(new Error("Gemini 模型未返回内容"));
-                    }
-                    const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-                    const parsed = JSON.parse(cleanJsonStr);
-                    const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
-                    resolve(items);
-                } catch (e) {
-                    reject(e);
-                }
-            };
-
-            if (typeof GM_xmlhttpRequest === "function") {
-                GM_xmlhttpRequest({
-                    method: "POST",
-                    url: url,
-                    headers: { "Content-Type": "application/json" },
-                    data: reqData,
-                    timeout: 25000,
-                    onload: (res) => {
-                        if (res.status >= 200 && res.status < 300) {
-                            handleSuccess(res.responseText);
-                        } else {
-                            reject(new Error("Gemini API 返回错误状态: " + res.status));
+            return new Promise((resolve, reject) => {
+                const parseResponse = (respText) => {
+                    try {
+                        const data = JSON.parse(respText);
+                        const candidate = data.candidates && data.candidates[0];
+                        const rawContent = candidate && candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text;
+                        if (!rawContent) {
+                            return reject(new Error("Gemini 模型未返回有效文本内容"));
                         }
-                    },
-                    ontimeout: () => reject(new Error("Gemini 请求超时")),
-                    onerror: (err) => reject(err)
-                });
-            } else {
-                fetch(url, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: reqData
-                })
-                    .then(r => r.text())
-                    .then(handleSuccess)
-                    .catch(reject);
-            }
-        });
+                        const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+                        const parsed = JSON.parse(cleanJsonStr);
+                        const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
+                        resolve(items);
+                    } catch (e) {
+                        reject(e);
+                    }
+                };
+
+                if (typeof GM_xmlhttpRequest === "function") {
+                    GM_xmlhttpRequest({
+                        method: "POST",
+                        url: url,
+                        headers: { "Content-Type": "application/json" },
+                        data: reqData,
+                        timeout: 25000,
+                        onload: (res) => {
+                            if (res.status >= 200 && res.status < 300) {
+                                parseResponse(res.responseText);
+                            } else {
+                                console.warn(`[ISA] Gemini [${modelName}] HTTP ${res.status}:`, res.responseText);
+                                reject(new Error(`Gemini [${modelName}] HTTP ${res.status}`));
+                            }
+                        },
+                        ontimeout: () => reject(new Error(`Gemini [${modelName}] 请求超时`)),
+                        onerror: (err) => reject(err)
+                    });
+                } else {
+                    fetch(url, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: reqData
+                    })
+                        .then(r => {
+                            if (!r.ok) {
+                                return r.text().then(t => {
+                                    console.warn(`[ISA] Gemini [${modelName}] HTTP ${r.status}:`, t);
+                                    throw new Error(`Gemini [${modelName}] HTTP ${r.status}`);
+                                });
+                            }
+                            return r.text();
+                        })
+                        .then(parseResponse)
+                        .catch(reject);
+                }
+            }).catch(err => {
+                // Try next model if 404
+                if (String(err).includes("404") && index + 1 < candidateModels.length) {
+                    return tryCallModel(index + 1);
+                }
+                throw err;
+            });
+        }
+
+        return tryCallModel(0);
     }
 
     // 智谱 GLM-4-Flash 宏观语块解构
