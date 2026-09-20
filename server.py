@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Local Service for IELTS Vocab Fantasia Assistant
+macOS Siri High-Fidelity Audio Relay Service for IELTS Vocab Fantasia Assistant
 Serves on http://127.0.0.1:8777/ with:
-- macOS Siri High-Fidelity Speech Engine & Real-Time Word Tracking (/api/siri_speak, /api/siri_events)
-- Dedicated Stats Dashboard & Local Data Persistence (/stats, /api/stats -> data/stats.json)
+- macOS Siri High-Fidelity Speech Engine (/api/siri_speak)
+- Real-Time Word Highlight & Event Stream (/api/siri_events)
 - Translation Fallback Proxy (/api/translate)
 - Full CORS Support (Access-Control-Allow-Origin: *)
 """
@@ -22,7 +22,8 @@ import struct
 import fcntl
 import termios
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from pathlib import Path
+
+PORT = 8777
 
 class QuietThreadingHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -179,7 +180,6 @@ class SiriSpeaker:
                         for m in matches:
                             word_str = m.decode("utf-8", errors="ignore")
                             raw = word_str.strip('.,!?:;"\'()[]{}')
-                            # Guard: reject multi-word or abnormal fallback chunks
                             if not raw or ' ' in raw or len(raw) > 40:
                                 continue
                             idx = clean_text.find(raw, search_pos)
@@ -233,38 +233,6 @@ class SiriSpeaker:
 
 siri_speaker = SiriSpeaker()
 
-PROJECT_DIR = Path(__file__).resolve().parent
-
-STATS_FILE = PROJECT_DIR / "data" / "stats.json"
-PORT = 8777
-
-
-def sanitize_stats_data(data):
-    if not isinstance(data, dict):
-        return data
-    words = data.get("words", {})
-    if isinstance(words, dict):
-        total_marks = 0
-        total_opens = 0
-        total_success = 0
-        for w_data in words.values():
-            if isinstance(w_data, dict):
-                opens = int(w_data.get("modalOpens", 0) or 0)
-                succ = int(w_data.get("inputSuccess", 0) or 0)
-                marks = int(w_data.get("marks", 0) or 0)
-                if opens > 0 and succ > opens:
-                    w_data["inputSuccess"] = opens
-                    succ = opens
-                total_marks += marks
-                total_opens += opens
-                total_success += succ
-        data["summary"] = {
-            "marks": total_marks,
-            "modalOpens": total_opens,
-            "inputSuccess": total_success
-        }
-    return data
-
 class IELTSRequestHandler(BaseHTTPRequestHandler):
     def handle(self):
         try:
@@ -286,24 +254,7 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            self.wfile.write(b"IELTS Vocab Fantasia Assistant Service running (Siri Audio Relay & Stats Sync)")
-            return
-
-        # Dedicated stats API
-        if req_name == "api/stats":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            if STATS_FILE.exists():
-                try:
-                    raw_data = json.loads(STATS_FILE.read_text(encoding='utf-8'))
-                    clean_data = sanitize_stats_data(raw_data)
-                    self.wfile.write(json.dumps(clean_data, ensure_ascii=False, indent=2).encode('utf-8'))
-                except Exception:
-                    self.wfile.write(STATS_FILE.read_bytes())
-            else:
-                self.wfile.write(b'{"summary":{"marks":0,"modalOpens":0,"inputSuccess":0},"words":{}}')
+            self.wfile.write(b"IELTS Vocab Fantasia Siri Audio Relay is running.")
             return
 
         # Siri speech status API
@@ -339,7 +290,6 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
                         if ev.get("type") in ("done", "stop"):
                             break
                     except queue.Empty:
-                        # Heartbeat comment to keep connection alive
                         self.wfile.write(b": ping\n\n")
                         self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, Exception):
@@ -348,7 +298,7 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
                 siri_speaker.remove_subscriber(q)
             return
 
-        # Translation proxy API
+        # Translation proxy fallback API
         if req_path.startswith("api/translate"):
             parsed = urllib.parse.urlparse(self.path)
             params = urllib.parse.parse_qs(parsed.query)
@@ -390,7 +340,7 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
                         self.end_headers()
                         self.wfile.write(json.dumps({"translation": text.strip()}, ensure_ascii=False).encode('utf-8'))
                         return
-            except Exception as e:
+            except Exception:
                 pass
 
             self.send_response(200)
@@ -400,43 +350,12 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": "Translation failed", "translation": ""}).encode('utf-8'))
             return
 
-        # Stats HTML page
-        if req_name in ("stats", "stats.html"):
-            stats_html = PROJECT_DIR / "tampermonkey" / "stats.html"
-            if stats_html.exists():
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(stats_html.read_bytes())
-                return
-
         self.send_response(404)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
     def do_POST(self):
         req_path = self.path.split('?', 1)[0].split('#', 1)[0].lstrip('/')
-        if req_path == "api/stats":
-            length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(length)
-            try:
-                data = json.loads(body.decode('utf-8'))
-                data = sanitize_stats_data(data)
-                STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
-                STATS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(b'{"status":"ok"}')
-                return
-            except Exception as e:
-                self.send_response(400)
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(str(e).encode('utf-8'))
-                return
 
         if req_path == "api/siri_speak":
             length = int(self.headers.get('Content-Length', 0))
@@ -477,7 +396,7 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, HEAD, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "*")
         self.end_headers()
 
@@ -487,13 +406,12 @@ class IELTSRequestHandler(BaseHTTPRequestHandler):
 def run_server(port=PORT):
     server_address = ('', port)
     httpd = QuietThreadingHTTPServer(server_address, IELTSRequestHandler)
-    print(f"============================================================")
-    print(f"🚀 IELTS Vocab Fantasia 本地核心服务已就绪 (Port {port}):")
-    print(f"   🍎 Siri 高保真语音引擎:  http://127.0.0.1:{port}/api/siri_speak")
-    print(f"   📊 学习统计数据大屏:    http://127.0.0.1:{port}/stats")
-    print(f"   💾 本地打点数据归档:    {STATS_FILE}")
-    print(f"   🌐 全域 CORS 通信支持:  已启用 (各大网页划词无缝交互)")
-    print(f"============================================================")
+    print("============================================================")
+    print(f"🍎 IELTS Vocab Fantasia Siri 语音服务已启动 (Port {port}):")
+    print(f"   🎙️ Siri 语音中继接口:  http://127.0.0.1:{port}/api/siri_speak")
+    print(f"   ⚡ 实时音词事件追踪:  http://127.0.0.1:{port}/api/siri_events")
+    print("   🌐 全域 CORS 支持已启用 (各大网页划词无缝交互)")
+    print("============================================================")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

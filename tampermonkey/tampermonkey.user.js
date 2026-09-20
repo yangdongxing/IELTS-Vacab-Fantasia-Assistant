@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.9.4
+// @version      1.9.5
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -775,26 +775,6 @@
         } catch (e) {}
 
         window.dispatchEvent(new CustomEvent("ielts_stats_updated", { detail: stats }));
-
-        // Cross-domain silent sync to local server so stats.html can aggregate data from Medium, BBC, etc.
-        const payload = JSON.stringify(stats);
-        if (typeof GM_xmlhttpRequest === "function") {
-            try {
-                GM_xmlhttpRequest({
-                    method: "POST",
-                    url: "http://127.0.0.1:8777/api/stats",
-                    headers: { "Content-Type": "application/json" },
-                    data: payload
-                });
-            } catch (e) {}
-        } else if (typeof fetch === "function") {
-            fetch("http://127.0.0.1:8777/api/stats", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: payload,
-                mode: "cors"
-            }).catch(() => {});
-        }
     }
 
     function isStatsPage() {
@@ -887,13 +867,6 @@
             }
             try { localStorage.removeItem(STATS_STORAGE_KEY); } catch (e) {}
             window.dispatchEvent(new CustomEvent("ielts_stats_updated", { detail: loadStats() }));
-            if (typeof fetch === "function") {
-                fetch("http://127.0.0.1:8777/api/stats", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ summary: { marks: 0, modalOpens: 0, inputSuccess: 0 }, words: {} })
-                }).catch(() => {});
-            }
             console.log("[IELTS Stats] Telemetry data cleared.");
         }
     };

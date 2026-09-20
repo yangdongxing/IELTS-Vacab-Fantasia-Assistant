@@ -1030,34 +1030,9 @@
             }).join("");
         }
 
-        // Silent server sync to aggregate data across all websites (Medium, BBC, test.html, etc.)
+        // Render stats directly from GM_getValue / localStorage
         function syncAndRender() {
             render();
-            fetch("http://127.0.0.1:8777/api/stats")
-                .then(res => res.json())
-                .then(serverStats => {
-                    if (serverStats && serverStats.words) {
-                        const local = loadStats();
-                        let changed = false;
-                        Object.keys(serverStats.words).forEach(k => {
-                            if (!local.words[k] || (serverStats.words[k].lastUpdated || 0) > (local.words[k].lastUpdated || 0)) {
-                                local.words[k] = serverStats.words[k];
-                                changed = true;
-                            }
-                        });
-                        Object.values(local.words).forEach(w => {
-                            if (w.modalOpens > 0 && (w.inputSuccess || 0) > w.modalOpens) {
-                                w.inputSuccess = w.modalOpens;
-                                changed = true;
-                            }
-                        });
-                        if (changed || Object.keys(serverStats.words).length !== Object.keys(local.words).length) {
-                            saveStats(local);
-                            render();
-                        }
-                    }
-                })
-                .catch(() => {});
         }
 
         // Event Listeners
@@ -1246,11 +1221,6 @@
                     if (typeof GM_setValue === "function") {
                         try { GM_setValue(STATS_STORAGE_KEY, local); } catch (err) {}
                     }
-                    fetch("http://127.0.0.1:8777/api/stats", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(local)
-                    }).catch(() => {});
 
                     render();
                     alert(`✅ 成功导入并生效 ${mergedCount} 个单词的打点数据！`);
@@ -1279,11 +1249,6 @@
                 if (typeof GM_setValue === "function") {
                     try { GM_setValue(STATS_STORAGE_KEY, null); } catch (e) {}
                 }
-                fetch("http://127.0.0.1:8777/api/stats", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ summary: { marks: 0, modalOpens: 0, inputSuccess: 0 }, words: {} })
-                }).catch(() => {});
                 render();
             }
         });
