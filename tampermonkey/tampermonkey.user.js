@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.0.4
+// @version      2.0.5
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -939,66 +939,69 @@
         }
     });
 
-    // If on stats dashboard page, smart-merge telemetry storage without terminating plugin execution
-    if (isStatsPage()) {
+    // Global Storage Synchronization & Data Self-healing (全网页启动自执行存储同步与数据自愈)
+    try {
+        const gmData = loadStats();
+        let localData = null;
         try {
-            const gmData = loadStats();
-            let localData = null;
-            try {
-                const raw = localStorage.getItem(STATS_STORAGE_KEY);
-                if (raw) localData = JSON.parse(raw);
-            } catch (e) {}
-
-            const merged = {
-                summary: { marks: 0, modalOpens: 0, inputSuccess: 0 },
-                words: { ...(gmData?.words || {}) }
-            };
-
-            let hasNewFromLocal = false;
-            if (localData && localData.words) {
-                Object.keys(localData.words).forEach(k => {
-                    const localItem = localData.words[k];
-                    const gmItem = merged.words[k];
-                    if (!gmItem || (localItem.lastUpdated || 0) >= (gmItem.lastUpdated || 0)) {
-                        merged.words[k] = localItem;
-                        hasNewFromLocal = true;
-                    } else {
-                        gmItem.marks = Math.max(gmItem.marks || 0, localItem.marks || 0);
-                        gmItem.modalOpens = Math.max(gmItem.modalOpens || 0, localItem.modalOpens || 0);
-                        gmItem.inputSuccess = Math.max(gmItem.inputSuccess || 0, localItem.inputSuccess || 0);
-                        if (localItem.firstAdded && (!gmItem.firstAdded || localItem.firstAdded < gmItem.firstAdded)) {
-                            gmItem.firstAdded = localItem.firstAdded;
-                        }
-                    }
-                });
-            }
-
-            let totalMarks = 0, totalModal = 0, totalSuccess = 0;
-            let needsBackfill = false;
-            Object.values(merged.words).forEach(w => {
-                if (!w || typeof w !== "object") return;
-                if (!w.firstAdded) {
-                    w.firstAdded = w.lastUpdated || Date.now();
-                    needsBackfill = true;
-                }
-                if (w.modalOpens > 0 && (w.inputSuccess || 0) > w.modalOpens) {
-                    w.inputSuccess = w.modalOpens;
-                    needsBackfill = true;
-                }
-                totalMarks += (w.marks || 0);
-                totalModal += (w.modalOpens || 0);
-                totalSuccess += (w.inputSuccess || 0);
-            });
-            merged.summary = { marks: totalMarks, modalOpens: totalModal, inputSuccess: totalSuccess };
-
-            localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(merged));
-            if (hasNewFromLocal || needsBackfill) {
-                saveStats(merged);
-            }
-            window.dispatchEvent(new CustomEvent("ielts_stats_loaded_from_tampermonkey", { detail: merged }));
+            const raw = localStorage.getItem(STATS_STORAGE_KEY);
+            if (raw) localData = JSON.parse(raw);
         } catch (e) {}
-        console.log("[ISA] Stats page detected: Storage synced, telemetry tracking suppressed, modal execution enabled.");
-    }
+
+        const merged = {
+            summary: { marks: 0, modalOpens: 0, inputSuccess: 0 },
+            words: { ...(gmData?.words || {}) }
+        };
+
+        let hasNewFromLocal = false;
+        if (localData && localData.words) {
+            Object.keys(localData.words).forEach(k => {
+                const localItem = localData.words[k];
+                const gmItem = merged.words[k];
+                if (!gmItem || (localItem.lastUpdated || 0) >= (gmItem.lastUpdated || 0)) {
+                    merged.words[k] = localItem;
+                    hasNewFromLocal = true;
+                } else {
+                    gmItem.marks = Math.max(gmItem.marks || 0, localItem.marks || 0);
+                    gmItem.modalOpens = Math.max(gmItem.modalOpens || 0, localItem.modalOpens || 0);
+                    gmItem.inputSuccess = Math.max(gmItem.inputSuccess || 0, localItem.inputSuccess || 0);
+                    if (localItem.firstAdded && (!gmItem.firstAdded || localItem.firstAdded < gmItem.firstAdded)) {
+                        gmItem.firstAdded = localItem.firstAdded;
+                        hasNewFromLocal = true;
+                    }
+                }
+            });
+        }
+
+        let totalMarks = 0, totalModal = 0, totalSuccess = 0;
+        let needsBackfill = false;
+        Object.values(merged.words).forEach(w => {
+            if (!w || typeof w !== "object") return;
+            if (!w.firstAdded) {
+                w.firstAdded = w.lastUpdated || Date.now();
+                needsBackfill = true;
+            }
+            if (w.modalOpens > 0 && (w.inputSuccess || 0) > w.modalOpens) {
+                w.inputSuccess = w.modalOpens;
+                needsBackfill = true;
+            }
+            totalMarks += (w.marks || 0);
+            totalModal += (w.modalOpens || 0);
+            totalSuccess += (w.inputSuccess || 0);
+        });
+        merged.summary = { marks: totalMarks, modalOpens: totalModal, inputSuccess: totalSuccess };
+
+        // 无论何种网页，启动时均同步刷新当前域名的 localStorage，确保数据一致
+        localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(merged));
+        if (hasNewFromLocal || needsBackfill) {
+            saveStats(merged);
+        }
+
+        if (isStatsPage()) {
+            window.dispatchEvent(new CustomEvent("ielts_stats_loaded_from_tampermonkey", { detail: merged }));
+            console.log("[ISA] Stats page detected: Storage synced, telemetry tracking suppressed, modal execution enabled.");
+        }
+    } catch (e) {}
 
     // ==========================================
     // Exact Project CSS Injection
