@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.0.9
+// @version      2.1.0
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -332,6 +332,7 @@
         if (typeof clearSpeechHighlights === "function") {
             try { clearSpeechHighlights(); } catch (e) {}
         }
+        document.querySelectorAll(".isa-breakdown-phrase.is-speaking-phrase").forEach(el => el.classList.remove("is-speaking-phrase"));
         if (typeof memoryModalRefs !== "undefined" && memoryModalRefs) {
             if (memoryModalRefs.word) memoryModalRefs.word.classList.remove("is-speaking");
             if (memoryModalRefs.translation) memoryModalRefs.translation.classList.remove("is-speaking");
@@ -1341,6 +1342,14 @@
                 color: #0284c7 !important;
             }
             .isa-breakdown-phrase:hover .isa-breakdown-en {
+                color: #0284c7 !important;
+            }
+            .isa-breakdown-phrase.is-speaking-phrase {
+                background-color: rgba(2, 132, 199, 0.12) !important;
+                box-shadow: 0 0 0 1.5px rgba(2, 132, 199, 0.3) !important;
+                color: #0284c7 !important;
+            }
+            .isa-breakdown-phrase.is-speaking-phrase .isa-breakdown-en {
                 color: #0284c7 !important;
             }
             .isa-breakdown-en {
@@ -3091,6 +3100,58 @@
         } catch (highlightErr) {}
     }
 
+    function highlightPhraseWord(enEl, localIdx, wordLen, rawWord) {
+        if (!_hasHighlightSupport || !enEl) return;
+        const text = (enEl.textContent || "");
+        if (!text || localIdx < 0 || localIdx >= text.length) return;
+
+        let len = wordLen;
+        if (!len || len <= 0 || len > 40) {
+            if (rawWord && rawWord.length > 0 && rawWord.length <= 40) {
+                len = rawWord.length;
+            } else {
+                const sub = text.slice(localIdx);
+                const m = sub.match(/^[\w'-]+/);
+                len = m ? m[0].length : 1;
+            }
+        }
+        if (len > 40) len = 40;
+
+        let currentOffset = 0;
+        let startNode = null, startOffset = 0;
+        let endNode = null, endOffset = 0;
+
+        const walker = document.createTreeWalker(enEl, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+            const nodeLen = node.nodeValue.length;
+            if (!startNode && currentOffset + nodeLen > localIdx) {
+                startNode = node;
+                startOffset = localIdx - currentOffset;
+            }
+            if (startNode && currentOffset + nodeLen >= localIdx + len) {
+                endNode = node;
+                endOffset = (localIdx + len) - currentOffset;
+                break;
+            }
+            currentOffset += nodeLen;
+        }
+
+        if (startNode && !endNode) {
+            endNode = startNode;
+            endOffset = Math.min(startNode.nodeValue.length, startOffset + len);
+        }
+
+        if (startNode && endNode) {
+            try {
+                const wordRange = document.createRange();
+                wordRange.setStart(startNode, startOffset);
+                wordRange.setEnd(endNode, endOffset);
+                CSS.highlights.set("isa-speak-word", new Highlight(wordRange));
+            } catch (highlightErr) {}
+        }
+    }
+
     function insertParagraphTranslation(targetParagraph, textToTranslate) {
         if (!targetParagraph) return;
 
@@ -3428,19 +3489,37 @@
                         if (finalEnEl) {
                             e.stopPropagation();
 
-                            // 1. 仅在浏览器中高亮选中英文部分，提供视觉焦点反馈（不写入剪贴板，避免覆盖用户内容）
-                            const enText = (finalEnEl.innerText || finalEnEl.textContent || "").trim();
+                            const phraseToPlay = phraseEl || finalEnEl.closest(".isa-breakdown-phrase") || finalEnEl;
+
+                            // 如果当前语块已经在朗读，再次点击则停止播放
+                            if (phraseToPlay.classList.contains("is-speaking-phrase")) {
+                                stopAllSpeech();
+                                return;
+                            }
+
+                            // 1. 取消浏览器原生选区，完全不占用和破坏正文已有 Selection
                             const selection = window.getSelection();
                             if (selection) {
                                 selection.removeAllRanges();
-                                const range = document.createRange();
-                                range.selectNodeContents(finalEnEl);
-                                selection.addRange(range);
                             }
 
-                            // 2. 朗读英文内容：优先 Siri，离线自动降级浏览器语音
+                            // 2. 状态切换与标记当前正在播放的语块底色
+                            stopAllSpeech();
+                            phraseToPlay.classList.add("is-speaking-phrase");
+
+                            const enText = (finalEnEl.innerText || finalEnEl.textContent || "").trim();
+
+                            // 3. 播放英文语音并启用实时音词跟随高亮
                             if (enText) {
-                                playEnglishSpeech(enText);
+                                playEnglishSpeech(enText, {
+                                    onWord: (info) => {
+                                        highlightPhraseWord(finalEnEl, info.charIndex, info.length, info.rawWord);
+                                    },
+                                    onEnd: () => {
+                                        clearSpeechHighlights();
+                                        phraseToPlay.classList.remove("is-speaking-phrase");
+                                    }
+                                });
                             }
                         }
                     };
