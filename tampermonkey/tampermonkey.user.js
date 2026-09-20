@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      1.9.8
+// @version      1.9.9
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。全量智谱AI核心搭配短语与释义标注，Tips气泡与大图例句覆层100%对齐，支持输入单词校验并自动退出，支持段落下自动插入Google神经双语对照翻译、朗读英文逐词实时高亮跟踪（纯净单词聚焦）、Siri高保真语音1-3-6-10-15一键连续播放与实时音词高亮跟踪（服务离线自动保留Option+Esc手动朗读）、智谱AI长难句核心语块一键全选朗读。
 // @author       极客助手
 // @match        *://*/*
@@ -2764,11 +2764,20 @@
                         if (!rawContent) {
                             return reject(new Error("Gemini 模型未返回有效文本内容"));
                         }
-                        const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-                        const parsed = JSON.parse(cleanJsonStr);
+                        let textToParse = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+                        // Locate JSON array [ ... ] or object { ... }
+                        const arrayMatch = textToParse.match(/\[[\s\S]*\]/);
+                        if (arrayMatch) {
+                            textToParse = arrayMatch[0];
+                        } else {
+                            const objMatch = textToParse.match(/\{[\s\S]*\}/);
+                            if (objMatch) textToParse = objMatch[0];
+                        }
+                        const parsed = JSON.parse(textToParse);
                         const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
                         resolve(items);
                     } catch (e) {
+                        console.warn("[ISA] Gemini JSON parse error on raw text:", respText);
                         reject(e);
                     }
                 };
@@ -2900,7 +2909,7 @@
 
         const geminiKey = getGeminiApiKey();
         if (geminiKey) {
-            const systemPrompt = "你是英语长难句与学术阅读语块拆解专家。请将输入的英文句子拆解为3-5个关键语义语块，并以中文通俗讲解其背景与原理解析。请直接以JSON数组输出：\n[\n  {\"en\": \"英文核心语块\", \"zh\": \"中文词义\", \"exp\": \"指的是.../说明.../原理解释\"}\n]\n只输出纯JSON数组。";
+            const systemPrompt = "你是英语长难句与学术阅读语块拆解专家。请将输入的英文句子拆解为3-5个关键语义语块，并以中文通俗讲解其背景与原理解析。严格输出纯JSON数组（不要有任何额外文字前缀或解释），格式规范如下：\n[\n  {\"en\": \"英文核心语块\", \"zh\": \"中文词义\", \"exp\": \"指的是.../说明.../原理解释\"}\n]";
             return requestGeminiGeneration(cleanText, systemPrompt, 550)
                 .then(items => ({ items, source: "gemini" }))
                 .catch(err => {
@@ -2991,7 +3000,7 @@
 
         const geminiKey = getGeminiApiKey();
         if (geminiKey) {
-            const systemPrompt = "你是英语长难句与深度短语解构专家。请将输入的英文短语/语块进一步深入解构为2-4个核心词汇搭配或最小语法单元，并用简明中文解释词义与语法作用。请直接以JSON数组输出：\n[\n  {\"en\": \"核心子语块/词组\", \"zh\": \"中文词义\", \"exp\": \"语法成分/用法说明\"}\n]\n只输出纯JSON数组。";
+            const systemPrompt = "你是英语长难句与深度短语解构专家。请将输入的英文短语/语块进一步深入解构为2-4个核心词汇搭配或最小语法单元，并用简明中文解释词义与语法作用。严格输出纯JSON数组（不要有任何额外文字前缀或解释），格式规范如下：\n[\n  {\"en\": \"核心子语块/词组\", \"zh\": \"中文词义\", \"exp\": \"语法成分/用法说明\"}\n]";
             return requestGeminiGeneration(cleanText, systemPrompt, 450)
                 .catch(err => {
                     console.warn("[ISA] Gemini analyzeSubChunk failed, fallback to Zhipu:", err);
