@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.2.3
+// @version      2.2.4
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。双层AI（Gemini/智谱）核心语块解构与释义，Tips气泡与大图例句覆层100%对齐，支持拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
 // @author       极客助手
 // @match        *://*/*
@@ -2693,6 +2693,8 @@
                 const stored = GM_getValue("isa_gemini_api_key", "");
                 if (stored && stored.trim()) return stored.trim();
             }
+            const local = window.localStorage && window.localStorage.getItem("isa_gemini_api_key");
+            if (local && local.trim()) return local.trim();
         } catch (e) {}
         return "";
     }
@@ -2734,10 +2736,7 @@
                 generationConfig: {
                     temperature: 0.1,
                     maxOutputTokens: 2048,
-                    responseMimeType: "application/json",
-                    thinkingConfig: {
-                        thinkingBudget: 0
-                    }
+                    responseMimeType: "application/json"
                 }
             };
 
@@ -2814,8 +2813,8 @@
                 }
             }).catch(err => {
                 const errStr = String(err);
-                // Try next model if 404 (Not Found), 503 (High Demand / Unavailable), 429 (Rate Limit / Resource Exhausted)
-                const isRetryable = /404|503|429|UNAVAILABLE|RESOURCE_EXHAUSTED/i.test(errStr);
+                // Try next model if 400 (Invalid Argument), 404 (Not Found), 503 (High Demand / Unavailable), 429 (Rate Limit), or 5xx
+                const isRetryable = /400|404|429|500|502|503|504|UNAVAILABLE|RESOURCE_EXHAUSTED/i.test(errStr);
                 if (isRetryable && index + 1 < candidateModels.length) {
                     console.warn(`[ISA] Gemini [${modelName}] failed with retryable status, auto-switching to [${candidateModels[index + 1]}]:`, errStr);
                     return tryCallModel(index + 1);
@@ -3708,6 +3707,13 @@
                 if (typeof GM_setValue === "function") {
                     try {
                         GM_setValue("isa_gemini_api_key", trimmed);
+                        try {
+                            if (trimmed) {
+                                window.localStorage && window.localStorage.setItem("isa_gemini_api_key", trimmed);
+                            } else {
+                                window.localStorage && window.localStorage.removeItem("isa_gemini_api_key");
+                            }
+                        } catch (e) {}
                         if (trimmed) {
                             alert("✅ Gemini API Key 配置成功！长难句解构已优先启用 Google Gemini 旗舰模型。");
                         } else {
