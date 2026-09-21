@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.2.4
-// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。双层AI（Gemini/智谱）核心语块解构与释义，Tips气泡与大图例句覆层100%对齐，支持拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
+// @version      2.3.0
+// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。单次统一AI驱动学术整句翻译与核心语块深度解构（Gemini 3.5 Flash-Lite / 智谱 GLM 自动降级），Tips气泡与大图例句覆层100%对齐，支持拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
 // @author       极客助手
 // @match        *://*/*
 // @match        file:///*
@@ -2466,123 +2466,6 @@
         return totalHighlighted;
     }
 
-    // ==========================================
-    // Multi-Source Neural Translation & Paragraph Insertion
-    // ==========================================
-    function translateViaGoogle(cleanText) {
-        return new Promise((resolve, reject) => {
-            const googleUrl = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=" + encodeURIComponent(cleanText);
-
-            if (typeof GM_xmlhttpRequest === "function") {
-                GM_xmlhttpRequest({
-                    method: "GET",
-                    url: googleUrl,
-                    headers: {
-                        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    },
-                    timeout: 6000,
-                    onload: function(res) {
-                        try {
-                            const data = JSON.parse(res.responseText);
-                            const translated = (data[0] || []).map(item => item[0]).join("");
-                            if (translated && translated.trim()) {
-                                resolve(translated.trim());
-                            } else {
-                                reject(new Error("Empty Google translation"));
-                            }
-                        } catch (e) {
-                            reject(e);
-                        }
-                    },
-                    ontimeout: () => reject(new Error("Google timeout")),
-                    onerror: (err) => reject(err)
-                });
-            } else {
-                fetch(googleUrl)
-                    .then(res => res.json())
-                    .then(data => {
-                        const translated = (data[0] || []).map(item => item[0]).join("");
-                        if (translated && translated.trim()) {
-                            resolve(translated.trim());
-                        } else {
-                            reject(new Error("Empty Google translation"));
-                        }
-                    })
-                    .catch(reject);
-            }
-        });
-    }
-
-    function translateViaMyMemory(cleanText) {
-        return new Promise((resolve, reject) => {
-            const mmUrl = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(cleanText) + "&langpair=en|zh-CN";
-
-            if (typeof GM_xmlhttpRequest === "function") {
-                GM_xmlhttpRequest({
-                    method: "GET",
-                    url: mmUrl,
-                    headers: {
-                        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    },
-                    timeout: 6000,
-                    onload: function(res) {
-                        try {
-                            const data = JSON.parse(res.responseText);
-                            const text = data.responseData && data.responseData.translatedText;
-                            if (text && text.trim() && !text.includes("MYMEMORY WARNING")) {
-                                resolve(text.trim());
-                            } else {
-                                reject(new Error("Empty MyMemory translation"));
-                            }
-                        } catch (e) {
-                            reject(e);
-                        }
-                    },
-                    ontimeout: () => reject(new Error("MyMemory timeout")),
-                    onerror: (err) => reject(err)
-                });
-            } else {
-                fetch(mmUrl)
-                    .then(res => res.json())
-                    .then(data => {
-                        const text = data.responseData && data.responseData.translatedText;
-                        if (text && text.trim() && !text.includes("MYMEMORY WARNING")) {
-                            resolve(text.trim());
-                        } else {
-                            reject(new Error("Empty MyMemory translation"));
-                        }
-                    })
-                    .catch(reject);
-            }
-        });
-    }
-
-    function translateViaLocalProxy(cleanText) {
-        return new Promise((resolve, reject) => {
-            fetch("http://127.0.0.1:8777/api/translate?q=" + encodeURIComponent(cleanText))
-                .then(r => r.json())
-                .then(d => {
-                    if (d.translation && d.translation.trim()) {
-                        resolve(d.translation.trim());
-                    } else {
-                        reject(new Error("Local proxy empty"));
-                    }
-                })
-                .catch(reject);
-        });
-    }
-
-    function translateTextMultiSource(text) {
-        const cleanText = (text || "").trim();
-        if (!cleanText) return Promise.resolve("");
-        return runFallbackChain(cleanText);
-    }
-
-    function runFallbackChain(cleanText) {
-        return translateViaGoogle(cleanText)
-            .catch(() => translateViaMyMemory(cleanText))
-            .catch(() => translateViaLocalProxy(cleanText));
-    }
 
     function findParagraphContainer(range, textToFind = "") {
         if (!range) return null;
@@ -2758,17 +2641,16 @@
                             return reject(new Error("Gemini 模型未返回有效文本内容"));
                         }
                         let textToParse = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-                        // Locate JSON array [ ... ] or object { ... }
+                        // Locate JSON object { ... } or array [ ... ]
+                        const objMatch = textToParse.match(/\{[\s\S]*\}/);
                         const arrayMatch = textToParse.match(/\[[\s\S]*\]/);
-                        if (arrayMatch) {
+                        if (objMatch && (!arrayMatch || objMatch.index < arrayMatch.index)) {
+                            textToParse = objMatch[0];
+                        } else if (arrayMatch) {
                             textToParse = arrayMatch[0];
-                        } else {
-                            const objMatch = textToParse.match(/\{[\s\S]*\}/);
-                            if (objMatch) textToParse = objMatch[0];
                         }
                         const parsed = JSON.parse(textToParse);
-                        const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
-                        resolve(items);
+                        resolve(parsed);
                     } catch (e) {
                         console.warn("[ISA] Gemini JSON parse error on raw text:", respText);
                         reject(e);
@@ -2826,8 +2708,8 @@
         return tryCallModel(0);
     }
 
-    // 智谱 GLM-4-Flash 宏观语块解构
-    function analyzeSentenceChunksViaZhipu(cleanText) {
+    // 智谱 GLM-4-Flash 联合学术翻译与核心语块解构
+    function analyzeAndTranslateViaZhipu(cleanText) {
         return new Promise((resolve, reject) => {
             const apiKey = getZhipuApiKey();
             if (!apiKey) return reject(new Error("未配置智谱 API Key"));
@@ -2837,11 +2719,11 @@
                 messages: [
                     {
                         role: "system",
-                        content: "你是英语长难句与学术阅读语块拆解专家。请将输入的英文句子拆解为3-5个关键语义语块，并以中文通俗讲解其背景与原理解析。请直接以JSON数组输出：\n[\n  {\"en\": \"英文核心语块\", \"zh\": \"中文词义\", \"exp\": \"指的是.../说明.../原理解释\"}\n]\n不要包含```json标记或多余闲聊，只输出JSON数组。"
+                        content: "你是英语学术阅读与长难句精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 将句子拆解为3-5个核心语义语块，并提供通俗的词义与语法/原理解析。\n\n请直接以纯JSON对象输出（不要包含```json标记或任何多余闲聊）：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"核心英文语块\", \"zh\": \"中文词义\", \"exp\": \"原理解释/语法作用\"}\n  ]\n}"
                     },
                     { role: "user", content: cleanText }
                 ],
-                max_tokens: 500,
+                max_tokens: 850,
                 temperature: 0.1
             };
 
@@ -2852,11 +2734,19 @@
                 try {
                     const data = JSON.parse(respText);
                     const rawContent = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-                    if (!rawContent) return reject(new Error("模型未返回内容"));
-                    const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+                    if (!rawContent) return reject(new Error("智谱模型未返回内容"));
+                    let cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+                    const objMatch = cleanJsonStr.match(/\{[\s\S]*\}/);
+                    if (objMatch) cleanJsonStr = objMatch[0];
                     const parsed = JSON.parse(cleanJsonStr);
-                    const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
-                    resolve(items);
+                    let chunks = parsed.chunks || (Array.isArray(parsed) ? parsed : []);
+                    if (Array.isArray(chunks) && chunks.length === 1 && Array.isArray(chunks[0])) {
+                        chunks = chunks[0];
+                    }
+                    resolve({
+                        translation: (parsed.translation || "").trim(),
+                        chunks: Array.isArray(chunks) ? chunks : []
+                    });
                 } catch (e) {
                     reject(e);
                 }
@@ -2898,23 +2788,37 @@
         });
     }
 
-    // 智能调度：优先 Gemini，失败或未配置时自动降级到智谱
-    function analyzeSentenceChunks(text) {
+    // 智能统一调度：一次性完成段落学术翻译与核心语块解构
+    // 优先 Gemini，遇到故障或未配置时自动平滑降级到智谱
+    function analyzeAndTranslateParagraph(text) {
         const cleanText = (text || "").trim();
         if (!cleanText) return Promise.reject(new Error("分析文本为空"));
 
         const geminiKey = getGeminiApiKey();
         if (geminiKey) {
-            const systemPrompt = "你是英语长难句与学术阅读语块拆解专家。请将输入的英文句子拆解为3-5个关键语义语块，并以中文通俗讲解其背景与原理解析。严格输出纯JSON数组（不要有任何额外文字前缀或解释），格式规范如下：\n[\n  {\"en\": \"英文核心语块\", \"zh\": \"中文词义\", \"exp\": \"指的是.../说明.../原理解释\"}\n]";
-            return requestGeminiGeneration(cleanText, systemPrompt, 550)
-                .then(items => ({ items, source: "gemini" }))
+            const systemPrompt = "你是英语学术阅读与长难句精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 将句子拆解为3-5个核心语义语块，并提供通俗的词义与语法/原理解析。\n\n严格输出纯JSON对象，格式规范如下：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"核心英文语块\", \"zh\": \"中文词义\", \"exp\": \"原理解释/语法作用\"}\n  ]\n}";
+            return requestGeminiGeneration(cleanText, systemPrompt, 850)
+                .then(res => {
+                    let translation = "";
+                    let chunks = [];
+                    if (res && typeof res === "object" && !Array.isArray(res)) {
+                        translation = (res.translation || "").trim();
+                        chunks = Array.isArray(res.chunks) ? res.chunks : [];
+                    } else if (Array.isArray(res)) {
+                        chunks = res;
+                    }
+                    if (Array.isArray(chunks) && chunks.length === 1 && Array.isArray(chunks[0])) {
+                        chunks = chunks[0];
+                    }
+                    return { translation, chunks, source: "gemini" };
+                })
                 .catch(err => {
-                    console.warn("[ISA] Gemini analyzeSentenceChunks failed, fallback to Zhipu:", err);
-                    return analyzeSentenceChunksViaZhipu(cleanText).then(items => ({ items, source: "zhipu" }));
+                    console.warn("[ISA] Gemini analyzeAndTranslate failed, fallback to Zhipu:", err);
+                    return analyzeAndTranslateViaZhipu(cleanText).then(data => ({ ...data, source: "zhipu" }));
                 });
         }
 
-        return analyzeSentenceChunksViaZhipu(cleanText).then(items => ({ items, source: "zhipu" }));
+        return analyzeAndTranslateViaZhipu(cleanText).then(data => ({ ...data, source: "zhipu" }));
     }
 
     // 智谱 GLM-4-Flash 深度微观子语块解构
@@ -2998,6 +2902,11 @@
         if (geminiKey) {
             const systemPrompt = "你是英语长难句与深度短语解构专家。请将输入的英文短语/语块进一步深入解构为2-4个核心词汇搭配或最小语法单元，并用简明中文解释词义与语法作用。严格输出纯JSON数组（不要有任何额外文字前缀或解释），格式规范如下：\n[\n  {\"en\": \"核心子语块/词组\", \"zh\": \"中文词义\", \"exp\": \"语法成分/用法说明\"}\n]";
             return requestGeminiGeneration(cleanText, systemPrompt, 450)
+                .then(res => {
+                    let items = Array.isArray(res) ? res : (Array.isArray(res && res.chunks) ? res.chunks : []);
+                    if (Array.isArray(items) && items.length === 1 && Array.isArray(items[0])) items = items[0];
+                    return items;
+                })
                 .catch(err => {
                     console.warn("[ISA] Gemini analyzeSubChunk failed, fallback to Zhipu:", err);
                     return analyzeSubChunkViaZhipu(cleanText);
@@ -3325,8 +3234,7 @@
 
             retryBtn.onclick = (e) => {
                 e.stopPropagation();
-                fetchTranslation();
-                fetchBreakdown();
+                fetchTranslationAndBreakdown();
             };
 
                         closeBtn.onclick = (e) => {
@@ -3356,45 +3264,36 @@
             }
         }
 
-        function fetchTranslation() {
-            if (contentEl) {
-                contentEl.className = "isa-trans-content isa-trans-loading";
-                contentEl.textContent = "正在翻译段落中...";
-            }
-            if (retryBtn) retryBtn.style.display = "none";
-
-            translateTextMultiSource(textToTranslate)
-                .then(zhText => {
-                    if (!zhText || !zhText.trim()) {
-                        handleFail("（暂未获取到译文，可能因网络波动）");
-                        return;
-                    }
-                    if (contentEl) {
-                        contentEl.className = "isa-trans-content";
-                        contentEl.textContent = zhText;
-                    }
-                    if (retryBtn) retryBtn.style.display = "none";
-                })
-                .catch(() => {
-                    handleFail("（翻译请求连接超时）");
-                });
-        }
-
         const breakdownContainerEl = transBox.querySelector(".isa-breakdown-container");
         const breakdownContentEl = transBox.querySelector(".isa-breakdown-content");
 
-        function fetchBreakdown() {
-            if (!breakdownContentEl) return;
+        function fetchTranslationAndBreakdown() {
+            if (contentEl) {
+                contentEl.className = "isa-trans-content isa-trans-loading";
+                contentEl.textContent = "正在翻译段落与解构核心语块中...";
+            }
             if (breakdownContainerEl) breakdownContainerEl.style.display = "none";
-            breakdownContentEl.className = "isa-breakdown-content";
-            breakdownContentEl.innerHTML = "";
+            if (breakdownContentEl) {
+                breakdownContentEl.className = "isa-breakdown-content";
+                breakdownContentEl.innerHTML = "";
+            }
+            if (retryBtn) retryBtn.style.display = "none";
 
-            analyzeSentenceChunks(textToTranslate)
+            analyzeAndTranslateParagraph(textToTranslate)
                 .then(resultObj => {
-                    const items = Array.isArray(resultObj) ? resultObj : (resultObj.items || []);
-                    const source = resultObj.source || (getGeminiApiKey() ? "gemini" : "zhipu");
-                    if (!items || items.length === 0) {
-                        return;
+                    const translation = (resultObj && resultObj.translation) || "";
+                    const items = (resultObj && resultObj.chunks) || [];
+                    const source = (resultObj && resultObj.source) || (getGeminiApiKey() ? "gemini" : "zhipu");
+
+                    // 1. 填充整句学术翻译
+                    if (contentEl) {
+                        if (translation) {
+                            contentEl.className = "isa-trans-content";
+                            contentEl.textContent = translation;
+                        } else {
+                            contentEl.className = "isa-trans-content isa-trans-error";
+                            contentEl.textContent = "（暂未获取到译文，请点击 🔄 重试）";
+                        }
                     }
 
                     const SUB_ICON_SVG = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="18" r="3"></circle><path d="M6 9v3a3 3 0 0 0 3 3h6"></path></svg>`;
@@ -3543,15 +3442,15 @@
                             }
                         }
                     };
+                    if (retryBtn) retryBtn.style.display = "none";
                 })
                 .catch(err => {
-                    console.warn("[ISA] Breakdown error:", err);
-                    if (breakdownContainerEl) breakdownContainerEl.style.display = "none";
+                    console.warn("[ISA] analyzeAndTranslateParagraph failed:", err);
+                    handleFail("（AI 请求连接超时或失败，请检查网络后点击 🔄 重试）");
                 });
         }
 
-        fetchTranslation();
-        fetchBreakdown();
+        fetchTranslationAndBreakdown();
     }
 
     // ==========================================
