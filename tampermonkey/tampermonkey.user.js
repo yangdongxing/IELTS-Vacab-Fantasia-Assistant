@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.1.1
+// @version      2.2.0
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。双层AI（Gemini/智谱）核心语块解构与释义，Tips气泡与大图例句覆层100%对齐，支持拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
 // @author       极客助手
 // @match        *://*/*
@@ -1116,40 +1116,84 @@
                 pointer-events: none !important;
             }
 
-            /* Floating Trigger Button */
+            /* Floating Trigger Button (Modern Deep Crimson Badge Design) */
             .isa-trigger-btn {
                 position: fixed !important;
-                background: #e11d48 !important;
-                color: #fff !important;
-                border-radius: 20px !important;
-                padding: 6px 12px !important;
-                box-shadow: 0 4px 18px rgba(225, 29, 72, 0.45), 0 2px 6px rgba(0, 0, 0, 0.15) !important;
+                background: linear-gradient(180deg, #a11630 0%, #830e24 100%) !important;
+                color: #ffffff !important;
+                border-radius: 9999px !important;
+                padding: 7px 18px 7px 12px !important;
+                box-shadow: 0 10px 25px -4px rgba(131, 14, 36, 0.48), 0 4px 10px -2px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
                 display: flex !important;
                 align-items: center !important;
-                gap: 6px !important;
+                gap: 9px !important;
                 cursor: pointer !important;
                 pointer-events: auto !important;
-                transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease !important;
+                transition: all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
                 z-index: 100000 !important;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-                font-size: 13px !important;
-                font-weight: 600 !important;
-                border: 2px solid rgba(255, 255, 255, 0.9) !important;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+                font-size: 14.5px !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.2px !important;
+                border: 1px solid rgba(255, 255, 255, 0.15) !important;
                 user-select: none !important;
                 -webkit-user-select: none !important;
-                animation: isaPop 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+                animation: isaPop 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
             }
             .isa-trigger-btn:hover {
-                transform: translateY(-2px) scale(1.04) !important;
-                background: #be123c !important;
-                box-shadow: 0 6px 22px rgba(225, 29, 72, 0.6) !important;
+                transform: translateY(-2.5px) scale(1.035) !important;
+                background: linear-gradient(180deg, #b51c38 0%, #911029 100%) !important;
+                box-shadow: 0 14px 30px -4px rgba(131, 14, 36, 0.6), 0 6px 14px -2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+            }
+            .isa-trigger-btn:active {
+                transform: translateY(0.5px) scale(0.985) !important;
+                box-shadow: 0 6px 16px -3px rgba(131, 14, 36, 0.5), inset 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+            }
+            .isa-trigger-icon-wrap {
+                position: relative !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                width: 26px !important;
+                height: 24px !important;
+                flex-shrink: 0 !important;
             }
             .isa-trigger-btn svg {
-                width: 15px !important;
-                height: 15px !important;
+                width: 21px !important;
+                height: 21px !important;
                 fill: none !important;
-                stroke: currentColor !important;
+                stroke: #ffffff !important;
                 stroke-width: 2.2 !important;
+                stroke-linecap: round !important;
+                stroke-linejoin: round !important;
+                transition: transform 0.22s ease !important;
+            }
+            .isa-trigger-btn:hover svg {
+                transform: rotate(-3deg) scale(1.05) !important;
+            }
+            .isa-trigger-badge {
+                position: absolute !important;
+                top: -3px !important;
+                right: -3px !important;
+                min-width: 15px !important;
+                height: 15px !important;
+                padding: 0 3px !important;
+                background: #ffffff !important;
+                color: #1e293b !important;
+                border-radius: 9999px !important;
+                font-size: 10px !important;
+                font-weight: 800 !important;
+                line-height: 15px !important;
+                text-align: center !important;
+                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35) !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+            }
+            .isa-trigger-text {
+                color: #ffffff !important;
+                white-space: nowrap !important;
+                line-height: 1 !important;
             }
 
             @keyframes isaPop {
@@ -3552,8 +3596,14 @@
         const btn = document.createElement("div");
         btn.className = "isa-trigger-btn";
         btn.innerHTML = `
-            <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
-            <span>IELTS Vocab (${matchCount})</span>
+            <div class="isa-trigger-icon-wrap">
+                <svg viewBox="0 0 24 24">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                </svg>
+                <span class="isa-trigger-badge">${matchCount}</span>
+            </div>
+            <span class="isa-trigger-text">IELTS Vocab</span>
         `;
 
         let posX = x + 10;
