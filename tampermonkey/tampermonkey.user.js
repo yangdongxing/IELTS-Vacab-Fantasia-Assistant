@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.2.2
+// @version      2.2.3
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。双层AI（Gemini/智谱）核心语块解构与释义，Tips气泡与大图例句覆层100%对齐，支持拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
 // @author       极客助手
 // @match        *://*/*
@@ -2707,14 +2707,14 @@
         return ZHIPU_API_KEY_DEFAULT;
     }
 
-    // Google Gemini API Caller (supports fallback candidates: gemini-3.6-flash -> gemini-2.5-flash -> gemini-2.5-pro -> gemini-1.5-flash)
+    // Google Gemini API Caller (supports fallback candidates: gemini-3.5-flash-lite -> gemini-3.6-flash -> gemini-3.5-flash)
     function requestGeminiGeneration(prompt, systemInstruction = "", maxTokens = 600) {
         const apiKey = getGeminiApiKey();
         if (!apiKey) {
             return Promise.reject(new Error("Gemini API Key 未配置"));
         }
 
-        const candidateModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"];
+        const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.5-flash"];
 
         function tryCallModel(index) {
             if (index >= candidateModels.length) {
@@ -2788,7 +2788,7 @@
                                 parseResponse(res.responseText);
                             } else {
                                 console.warn(`[ISA] Gemini [${modelName}] HTTP ${res.status}:`, res.responseText);
-                                reject(new Error(`Gemini [${modelName}] HTTP ${res.status}`));
+                                reject(new Error(`Gemini [${modelName}] HTTP ${res.status}: ${res.responseText || ""}`));
                             }
                         },
                         ontimeout: () => reject(new Error(`Gemini [${modelName}] 请求超时`)),
@@ -2804,7 +2804,7 @@
                             if (!r.ok) {
                                 return r.text().then(t => {
                                     console.warn(`[ISA] Gemini [${modelName}] HTTP ${r.status}:`, t);
-                                    throw new Error(`Gemini [${modelName}] HTTP ${r.status}`);
+                                    throw new Error(`Gemini [${modelName}] HTTP ${r.status}: ${t || ""}`);
                                 });
                             }
                             return r.text();
@@ -2813,8 +2813,11 @@
                         .catch(reject);
                 }
             }).catch(err => {
-                // Try next model if 404
-                if (String(err).includes("404") && index + 1 < candidateModels.length) {
+                const errStr = String(err);
+                // Try next model if 404 (Not Found), 503 (High Demand / Unavailable), 429 (Rate Limit / Resource Exhausted)
+                const isRetryable = /404|503|429|UNAVAILABLE|RESOURCE_EXHAUSTED/i.test(errStr);
+                if (isRetryable && index + 1 < candidateModels.length) {
+                    console.warn(`[ISA] Gemini [${modelName}] failed with retryable status, auto-switching to [${candidateModels[index + 1]}]:`, errStr);
                     return tryCallModel(index + 1);
                 }
                 throw err;
