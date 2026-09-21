@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.3.2
+// @version      2.3.3
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。单次统一AI驱动学术整句翻译与核心语块深度解构（Gemini 3.5 Flash-Lite / 智谱 GLM 自动降级），Tips气泡与大图例句覆层100%对齐，支持拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
 // @author       极客助手
 // @match        *://*/*
@@ -2663,7 +2663,7 @@
                         url: url,
                         headers: { "Content-Type": "application/json" },
                         data: reqData,
-                        timeout: 25000,
+                        timeout: 8000,
                         onload: (res) => {
                             if (res.status >= 200 && res.status < 300) {
                                 parseResponse(res.responseText);
@@ -2676,11 +2676,15 @@
                         onerror: (err) => reject(err)
                     });
                 } else {
-                    fetch(url, {
+                    const fetchOptions = {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: reqData
-                    })
+                    };
+                    if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+                        fetchOptions.signal = AbortSignal.timeout(8000);
+                    }
+                    fetch(url, fetchOptions)
                         .then(r => {
                             if (!r.ok) {
                                 return r.text().then(t => {
