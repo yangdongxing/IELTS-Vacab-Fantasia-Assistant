@@ -13,8 +13,8 @@
 ## 🎬 功能演示录屏
 
 <div align="center">
-  <video src="https://github.com/user-attachments/assets/b5072bff-b974-4762-8b43-abb05c8501de" controls="controls" autoplay="autoplay" muted="muted" loop="loop" width="100%" style="max-width: 720px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.15);">
-    您的浏览器不支持直接播放，请 <a href="https://github.com/user-attachments/assets/b5072bff-b974-4762-8b43-abb05c8501de">点击此处直接观看演示录屏</a>。
+  <video src="https://github.com/user-attachments/assets/fe3292d8-b734-4ebe-8825-5ab38068a880" controls="controls" autoplay="autoplay" muted="muted" loop="loop" width="100%" style="max-width: 720px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.15);">
+    您的浏览器不支持直接播放，请 <a href="https://github.com/user-attachments/assets/fe3292d8-b734-4ebe-8825-5ab38068a880">点击此处直接观看演示录屏</a>。
   </video>
 </div>
 
