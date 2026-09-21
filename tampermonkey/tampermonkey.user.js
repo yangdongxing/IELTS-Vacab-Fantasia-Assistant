@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.3.3
+// @version      2.3.4
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。单次统一AI驱动学术整句翻译与核心语块深度解构（Gemini 3.5 Flash-Lite / 智谱 GLM 自动降级），Tips气泡与大图例句覆层100%对齐，支持拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
 // @author       极客助手
 // @match        *://*/*
@@ -2592,6 +2592,84 @@
         return ZHIPU_API_KEY_DEFAULT;
     }
 
+    // Unified HTTP Post Helper with Dual Channel (GM_xmlhttpRequest + window.fetch fallback)
+    function makeApiPostRequest(url, headers, body, timeoutMs = 8000) {
+        return new Promise((resolve, reject) => {
+            let settled = false;
+
+            const tryFetch = () => {
+                if (typeof fetch !== "function") {
+                    if (!settled) { settled = true; reject(new Error("网络请求超时或失败")); }
+                    return;
+                }
+                const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+                const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+                fetch(url, {
+                    method: "POST",
+                    headers: headers,
+                    body: body,
+                    signal: controller ? controller.signal : undefined
+                })
+                .then(async res => {
+                    if (timer) clearTimeout(timer);
+                    const text = await res.text().catch(() => "");
+                    if (!res.ok) {
+                        throw new Error(`HTTP ${res.status}: ${text}`);
+                    }
+                    if (!settled) {
+                        settled = true;
+                        resolve(text);
+                    }
+                })
+                .catch(err => {
+                    if (timer) clearTimeout(timer);
+                    if (!settled) {
+                        settled = true;
+                        reject(err);
+                    }
+                });
+            };
+
+            if (typeof GM_xmlhttpRequest === "function") {
+                try {
+                    GM_xmlhttpRequest({
+                        method: "POST",
+                        url: url,
+                        headers: headers,
+                        data: body,
+                        timeout: timeoutMs,
+                        onload: (res) => {
+                            if (res.status >= 200 && res.status < 300) {
+                                if (!settled) {
+                                    settled = true;
+                                    resolve(res.responseText);
+                                }
+                            } else {
+                                if (!settled) {
+                                    settled = true;
+                                    reject(new Error(`HTTP ${res.status}: ${res.responseText || ""}`));
+                                }
+                            }
+                        },
+                        ontimeout: () => {
+                            console.warn("[ISA] GM_xmlhttpRequest 超时，立即切换原生 fetch 兜底...");
+                            tryFetch();
+                        },
+                        onerror: (err) => {
+                            console.warn("[ISA] GM_xmlhttpRequest 错误，立即切换原生 fetch 兜底...", err);
+                            tryFetch();
+                        }
+                    });
+                } catch (e) {
+                    console.warn("[ISA] GM_xmlhttpRequest 调用异常，切换原生 fetch...", e);
+                    tryFetch();
+                }
+            } else {
+                tryFetch();
+            }
+        });
+    }
+
     // Google Gemini API Caller (supports fallback candidates: gemini-3.5-flash-lite -> gemini-3.6-flash -> gemini-3.5-flash)
     function requestGeminiGeneration(prompt, systemInstruction = "", maxTokens = 600) {
         const apiKey = getGeminiApiKey();
@@ -2631,82 +2709,43 @@
 
             const reqData = JSON.stringify(payload);
 
-            return new Promise((resolve, reject) => {
-                const parseResponse = (respText) => {
-                    try {
-                        const data = JSON.parse(respText);
-                        const candidate = data.candidates && data.candidates[0];
-                        const rawContent = candidate && candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text;
-                        if (!rawContent) {
-                            return reject(new Error("Gemini 模型未返回有效文本内容"));
-                        }
-                        let textToParse = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-                        // Locate JSON object { ... } or array [ ... ]
-                        const objMatch = textToParse.match(/\{[\s\S]*\}/);
-                        const arrayMatch = textToParse.match(/\[[\s\S]*\]/);
-                        if (objMatch && (!arrayMatch || objMatch.index < arrayMatch.index)) {
-                            textToParse = objMatch[0];
-                        } else if (arrayMatch) {
-                            textToParse = arrayMatch[0];
-                        }
-                        const parsed = JSON.parse(textToParse);
-                        resolve(parsed);
-                    } catch (e) {
-                        console.warn("[ISA] Gemini JSON parse error on raw text:", respText);
-                        reject(e);
+            const parseResponse = (respText) => {
+                try {
+                    const data = JSON.parse(respText);
+                    const candidate = data.candidates && data.candidates[0];
+                    const rawContent = candidate && candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text;
+                    if (!rawContent) {
+                        throw new Error("Gemini 模型未返回有效文本内容");
                     }
-                };
+                    let textToParse = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+                    // Locate JSON object { ... } or array [ ... ]
+                    const objMatch = textToParse.match(/\{[\s\S]*\}/);
+                    const arrayMatch = textToParse.match(/\[[\s\S]*\]/);
+                    if (objMatch && (!arrayMatch || objMatch.index < arrayMatch.index)) {
+                        textToParse = objMatch[0];
+                    } else if (arrayMatch) {
+                        textToParse = arrayMatch[0];
+                    }
+                    const parsed = JSON.parse(textToParse);
+                    return parsed;
+                } catch (e) {
+                    console.warn("[ISA] Gemini JSON parse error on raw text:", respText);
+                    throw e;
+                }
+            };
 
-                if (typeof GM_xmlhttpRequest === "function") {
-                    GM_xmlhttpRequest({
-                        method: "POST",
-                        url: url,
-                        headers: { "Content-Type": "application/json" },
-                        data: reqData,
-                        timeout: 8000,
-                        onload: (res) => {
-                            if (res.status >= 200 && res.status < 300) {
-                                parseResponse(res.responseText);
-                            } else {
-                                console.warn(`[ISA] Gemini [${modelName}] HTTP ${res.status}:`, res.responseText);
-                                reject(new Error(`Gemini [${modelName}] HTTP ${res.status}: ${res.responseText || ""}`));
-                            }
-                        },
-                        ontimeout: () => reject(new Error(`Gemini [${modelName}] 请求超时`)),
-                        onerror: (err) => reject(err)
-                    });
-                } else {
-                    const fetchOptions = {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: reqData
-                    };
-                    if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
-                        fetchOptions.signal = AbortSignal.timeout(8000);
+            return makeApiPostRequest(url, { "Content-Type": "application/json" }, reqData, 8000)
+                .then(parseResponse)
+                .catch(err => {
+                    const errStr = String(err);
+                    // Try next model if 400 (Invalid Argument), 403 (Forbidden), 404 (Not Found), 503 (High Demand / Unavailable), 429 (Rate Limit), or 5xx
+                    const isRetryable = /400|403|404|429|500|502|503|504|UNAVAILABLE|RESOURCE_EXHAUSTED/i.test(errStr);
+                    if (isRetryable && index + 1 < candidateModels.length) {
+                        console.warn(`[ISA] Gemini [${modelName}] failed with retryable status, auto-switching to [${candidateModels[index + 1]}]:`, errStr);
+                        return tryCallModel(index + 1);
                     }
-                    fetch(url, fetchOptions)
-                        .then(r => {
-                            if (!r.ok) {
-                                return r.text().then(t => {
-                                    console.warn(`[ISA] Gemini [${modelName}] HTTP ${r.status}:`, t);
-                                    throw new Error(`Gemini [${modelName}] HTTP ${r.status}: ${t || ""}`);
-                                });
-                            }
-                            return r.text();
-                        })
-                        .then(parseResponse)
-                        .catch(reject);
-                }
-            }).catch(err => {
-                const errStr = String(err);
-                // Try next model if 400 (Invalid Argument), 404 (Not Found), 503 (High Demand / Unavailable), 429 (Rate Limit), or 5xx
-                const isRetryable = /400|404|429|500|502|503|504|UNAVAILABLE|RESOURCE_EXHAUSTED/i.test(errStr);
-                if (isRetryable && index + 1 < candidateModels.length) {
-                    console.warn(`[ISA] Gemini [${modelName}] failed with retryable status, auto-switching to [${candidateModels[index + 1]}]:`, errStr);
-                    return tryCallModel(index + 1);
-                }
-                throw err;
-            });
+                    throw err;
+                });
         }
 
         return tryCallModel(0);
@@ -2714,81 +2753,44 @@
 
     // 智谱 GLM-4-Flash 联合学术翻译与核心语块解构
     function analyzeAndTranslateViaZhipu(cleanText) {
-        return new Promise((resolve, reject) => {
-            const apiKey = getZhipuApiKey();
-            if (!apiKey) return reject(new Error("未配置智谱 API Key"));
+        const apiKey = getZhipuApiKey();
+        if (!apiKey) return Promise.reject(new Error("未配置智谱 API Key"));
 
-            const payload = {
-                model: "glm-4-flash",
-                messages: [
-                    {
-                        role: "system",
-                        content: "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 将句子拆解为3-5个核心语义语块，并提供帮助理解句意与帮助记忆的有效解析：\n   - 重点说明该语块在句子中的实际含义、表达事实或逻辑角色；\n   - 提供核心词的记忆窍门、固定搭配或同义替换，帮助牢固掌握；\n   - 切勿罗列枯燥死板的语法术语（不要分析主谓宾、定语从句、分词等结构名称）。\n\n请直接以纯JSON对象输出（不要包含```json标记或任何多余闲聊）：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"核心英文语块\", \"zh\": \"中文词义\", \"exp\": \"语境含义点拨与记忆搭配（助理解、助记忆）\"}\n  ]\n}"
-                    },
-                    { role: "user", content: cleanText }
-                ],
-                max_tokens: 850,
-                temperature: 0.1
-            };
+        const payload = {
+            model: "glm-4-flash",
+            messages: [
+                {
+                    role: "system",
+                    content: "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 将句子拆解为3-5个核心语义语块，并提供帮助理解句意与帮助记忆的有效解析：\n   - 重点说明该语块在句子中的实际含义、表达事实或逻辑角色；\n   - 提供核心词的记忆窍门、固定搭配或同义替换，帮助牢固掌握；\n   - 切勿罗列枯燥死板的语法术语（不要分析主谓宾、定语从句、分词等结构名称）。\n\n请直接以纯JSON对象输出（不要包含```json标记或任何多余闲聊）：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"核心英文语块\", \"zh\": \"中文词义\", \"exp\": \"语境含义点拨与记忆搭配（助理解、助记忆）\"}\n  ]\n}"
+                },
+                { role: "user", content: cleanText }
+            ],
+            max_tokens: 850,
+            temperature: 0.1
+        };
 
-            const url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
-            const reqData = JSON.stringify(payload);
+        const url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+        const reqData = JSON.stringify(payload);
 
-            const handleSuccess = (respText) => {
-                try {
-                    const data = JSON.parse(respText);
-                    const rawContent = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-                    if (!rawContent) return reject(new Error("智谱模型未返回内容"));
-                    let cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-                    const objMatch = cleanJsonStr.match(/\{[\s\S]*\}/);
-                    if (objMatch) cleanJsonStr = objMatch[0];
-                    const parsed = JSON.parse(cleanJsonStr);
-                    let chunks = parsed.chunks || (Array.isArray(parsed) ? parsed : []);
-                    if (Array.isArray(chunks) && chunks.length === 1 && Array.isArray(chunks[0])) {
-                        chunks = chunks[0];
-                    }
-                    resolve({
-                        translation: (parsed.translation || "").trim(),
-                        chunks: Array.isArray(chunks) ? chunks : []
-                    });
-                } catch (e) {
-                    reject(e);
-                }
-            };
-
-            if (typeof GM_xmlhttpRequest === "function") {
-                GM_xmlhttpRequest({
-                    method: "POST",
-                    url: url,
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer " + apiKey
-                    },
-                    data: reqData,
-                    timeout: 35000,
-                    onload: (res) => {
-                        if (res.status >= 200 && res.status < 300) {
-                            handleSuccess(res.responseText);
-                        } else {
-                            reject(new Error("智谱 API 请求失败: " + res.status));
-                        }
-                    },
-                    ontimeout: () => reject(new Error("请求超时（网络响应较慢，可点击🔄重试）")),
-                    onerror: (err) => reject(err)
-                });
-            } else {
-                fetch(url, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer " + apiKey
-                    },
-                    body: reqData
-                })
-                    .then(r => r.text())
-                    .then(handleSuccess)
-                    .catch(reject);
+        return makeApiPostRequest(url, {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + apiKey
+        }, reqData, 20000).then(respText => {
+            const data = JSON.parse(respText);
+            const rawContent = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+            if (!rawContent) throw new Error("智谱模型未返回内容");
+            let cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+            const objMatch = cleanJsonStr.match(/\{[\s\S]*\}/);
+            if (objMatch) cleanJsonStr = objMatch[0];
+            const parsed = JSON.parse(cleanJsonStr);
+            let chunks = parsed.chunks || (Array.isArray(parsed) ? parsed : []);
+            if (Array.isArray(chunks) && chunks.length === 1 && Array.isArray(chunks[0])) {
+                chunks = chunks[0];
             }
+            return {
+                translation: (parsed.translation || "").trim(),
+                chunks: Array.isArray(chunks) ? chunks : []
+            };
         });
     }
 
@@ -2827,73 +2829,35 @@
 
     // 智谱 GLM-4-Flash 深度微观子语块解构
     function analyzeSubChunkViaZhipu(cleanText) {
-        return new Promise((resolve, reject) => {
-            const apiKey = getZhipuApiKey();
-            if (!apiKey) return reject(new Error("未配置智谱 API Key"));
+        const apiKey = getZhipuApiKey();
+        if (!apiKey) return Promise.reject(new Error("未配置智谱 API Key"));
 
-            const payload = {
-                model: "glm-4-flash",
-                messages: [
-                    {
-                        role: "system",
-                        content: "你是雅思与学术英语精读专家。请将输入的英文短语进一步深入拆解为2-4个核心词组搭配或最小语义单元，并提供中文词义与记忆拓展（重点说明语境含义、搭配技巧或记忆窍门，切勿分析主谓宾等语法术语）。请直接以JSON数组输出：\n[\n  {\"en\": \"核心子语块/词组\", \"zh\": \"中文词义\", \"exp\": \"语境含义点拨与记忆搭配\"}\n]\n不要包含```json标记或多余闲聊，只输出JSON数组。"
-                    },
-                    { role: "user", content: cleanText }
-                ],
-                max_tokens: 450,
-                temperature: 0.1
-            };
+        const payload = {
+            model: "glm-4-flash",
+            messages: [
+                {
+                    role: "system",
+                    content: "你是雅思与学术英语精读专家。请将输入的英文短语进一步深入拆解为2-4个核心词组搭配或最小语义单元，并提供中文词义与记忆拓展（重点说明语境含义、搭配技巧或记忆窍门，切勿分析主谓宾等语法术语）。请直接以JSON数组输出：\n[\n  {\"en\": \"核心子语块/词组\", \"zh\": \"中文词义\", \"exp\": \"语境含义点拨与记忆搭配\"}\n]\n不要包含```json标记或多余闲聊，只输出JSON数组。"
+                },
+                { role: "user", content: cleanText }
+            ],
+            max_tokens: 450,
+            temperature: 0.1
+        };
 
-            const url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
-            const reqData = JSON.stringify(payload);
+        const url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+        const reqData = JSON.stringify(payload);
 
-            const handleSuccess = (respText) => {
-                try {
-                    const data = JSON.parse(respText);
-                    const rawContent = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-                    if (!rawContent) return reject(new Error("模型未返回内容"));
-                    const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-                    const parsed = JSON.parse(cleanJsonStr);
-                    const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
-                    resolve(items);
-                } catch (e) {
-                    reject(e);
-                }
-            };
-
-            if (typeof GM_xmlhttpRequest === "function") {
-                GM_xmlhttpRequest({
-                    method: "POST",
-                    url: url,
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer " + apiKey
-                    },
-                    data: reqData,
-                    timeout: 30000,
-                    onload: (res) => {
-                        if (res.status >= 200 && res.status < 300) {
-                            handleSuccess(res.responseText);
-                        } else {
-                            reject(new Error("API 请求失败: " + res.status));
-                        }
-                    },
-                    ontimeout: () => reject(new Error("请求超时")),
-                    onerror: (err) => reject(err)
-                });
-            } else {
-                fetch(url, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer " + apiKey
-                    },
-                    body: reqData
-                })
-                    .then(r => r.text())
-                    .then(handleSuccess)
-                    .catch(reject);
-            }
+        return makeApiPostRequest(url, {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + apiKey
+        }, reqData, 15000).then(respText => {
+            const data = JSON.parse(respText);
+            const rawContent = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+            if (!rawContent) throw new Error("模型未返回内容");
+            const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+            const parsed = JSON.parse(cleanJsonStr);
+            return Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
         });
     }
 
