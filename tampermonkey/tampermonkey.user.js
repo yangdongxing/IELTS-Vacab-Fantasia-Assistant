@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.1.0
+// @version      2.1.1
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。双层AI（Gemini/智谱）核心语块解构与释义，Tips气泡与大图例句覆层100%对齐，支持拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
 // @author       极客助手
 // @match        *://*/*
@@ -3553,7 +3553,7 @@
         btn.className = "isa-trigger-btn";
         btn.innerHTML = `
             <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
-            <span>标记真经 (${matchCount})</span>
+            <span>IELTS Vocab (${matchCount})</span>
         `;
 
         let posX = x + 10;
