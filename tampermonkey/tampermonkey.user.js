@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.3.4
+// @version      2.3.5
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。单次统一AI驱动学术整句翻译与核心语块深度解构（Gemini 3.5 Flash-Lite / 智谱 GLM 自动降级），Tips气泡与大图例句覆层100%对齐，支持拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
 // @author       极客助手
 // @match        *://*/*
@@ -2593,7 +2593,7 @@
     }
 
     // Unified HTTP Post Helper with Dual Channel (GM_xmlhttpRequest + window.fetch fallback)
-    function makeApiPostRequest(url, headers, body, timeoutMs = 8000) {
+    function makeApiPostRequest(url, headers, body, timeoutMs = 25000) {
         return new Promise((resolve, reject) => {
             let settled = false;
 
@@ -2660,6 +2660,13 @@
                             tryFetch();
                         }
                     });
+                    // 安全兜底：若扩展通道断裂导致回调永不触发，强制切 fetch
+                    setTimeout(() => {
+                        if (!settled) {
+                            console.warn("[ISA] GM_xmlhttpRequest 回调超时未触发，安全切换原生 fetch...");
+                            tryFetch();
+                        }
+                    }, timeoutMs + 2000);
                 } catch (e) {
                     console.warn("[ISA] GM_xmlhttpRequest 调用异常，切换原生 fetch...", e);
                     tryFetch();
@@ -2734,7 +2741,7 @@
                 }
             };
 
-            return makeApiPostRequest(url, { "Content-Type": "application/json" }, reqData, 8000)
+            return makeApiPostRequest(url, { "Content-Type": "application/json" }, reqData, 25000)
                 .then(parseResponse)
                 .catch(err => {
                     const errStr = String(err);
