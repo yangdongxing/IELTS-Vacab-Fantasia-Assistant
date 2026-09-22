@@ -1465,6 +1465,88 @@
                 font-size: 12px !important;
                 color: #94a3b8 !important;
             }
+            .isa-grammar-keyword {
+                cursor: pointer !important;
+                color: inherit !important;
+                text-decoration: none !important;
+                font-weight: inherit !important;
+                border-bottom: none !important;
+                outline: none !important;
+            }
+            .isa-breakdown-grammar-container {
+                margin: 6px 0 2px 8px !important;
+                padding: 7px 10px 7px 12px !important;
+                background: rgba(248, 250, 252, 0.95) !important;
+                border-left: 2.5px solid #8b5cf6 !important;
+                border-radius: 0 6px 6px 0 !important;
+                box-shadow: 0 1px 3px rgba(139, 92, 246, 0.06) !important;
+            }
+            .isa-breakdown-grammar-header {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                margin-bottom: 5px !important;
+                padding-bottom: 3px !important;
+                border-bottom: 1px dashed rgba(139, 92, 246, 0.22) !important;
+            }
+            .isa-breakdown-grammar-title {
+                font-size: 12px !important;
+                font-weight: 600 !important;
+                color: #7c3aed !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 4px !important;
+            }
+            .isa-breakdown-grammar-close {
+                background: none !important;
+                border: none !important;
+                color: #94a3b8 !important;
+                cursor: pointer !important;
+                font-size: 12px !important;
+                line-height: 1 !important;
+                padding: 2px 4px !important;
+                border-radius: 3px !important;
+            }
+            .isa-breakdown-grammar-close:hover {
+                color: #64748b !important;
+                background: rgba(0, 0, 0, 0.05) !important;
+            }
+            .isa-breakdown-grammar-list {
+                list-style: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 4px !important;
+            }
+            .isa-breakdown-grammar-item {
+                font-size: 12px !important;
+                line-height: 1.55 !important;
+                color: #334155 !important;
+            }
+            .isa-breakdown-grammar-tag {
+                color: #7c3aed !important;
+                font-weight: 600 !important;
+            }
+            .isa-breakdown-grammar-desc {
+                color: #475569 !important;
+            }
+            .isa-breakdown-grammar-loading {
+                font-size: 12px !important;
+                color: #7c3aed !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 6px !important;
+            }
+            .isa-breakdown-grammar-error {
+                font-size: 12px !important;
+                color: #ef4444 !important;
+                cursor: pointer !important;
+            }
+            .isa-breakdown-grammar-empty {
+                font-size: 12px !important;
+                color: #94a3b8 !important;
+            }
 
             /* Speech Text-Tracking (CSS Custom Highlight API) */
             ::highlight(isa-speak-word) {
@@ -3011,6 +3093,126 @@
             .replace(/'/g, "&#39;");
     }
 
+    // 雅思与学术英语高频核心语法名词词库（自动按长度降序匹配，优先匹配长词与专有名词）
+    const GRAMMAR_KEYWORDS = [
+        // 复合动能与分词/不定式功能
+        "现在分词作状语", "过去分词作状语", "分词作状语", "分词作定语", "不定式作状语", "不定式作定语", "动名词作主语", "动名词作宾语",
+        // 从句相关
+        "非限制性定语从句", "限制性定语从句", "主从复合句", "同位语从句", "定语从句", "宾语从句", "主语从句", "表语从句", "状语从句",
+        // 状语细分
+        "让步转折状语", "让步状语", "条件状语", "时间状语", "原因状语", "目的状语", "结果状语", "伴随状语", "方式状语", "地点状语", "比较状语", "状语",
+        // 非谓语与短语
+        "非谓语动词", "介词短语", "分词短语", "现在分词", "过去分词", "动名词短语", "动名词", "不定式短语", "动词不定式", "不定式", "独立主格", "形容词短语", "副词短语", "动词短语",
+        // 句型与语态
+        "there be结构", "there be句型", "特殊疑问句", "一般疑问句", "反意疑问句", "反义疑问句", "强调句型", "强调句", "部分倒装", "完全倒装", "倒装句", "虚拟语气", "被动语态", "主动语态", "形式主语", "形式宾语", "双重否定", "并列结构", "省略句", "存在句",
+        // 句子成分与动词分类
+        "谓语动词", "情态动词", "系动词", "助动词", "宾语补足语", "主语补足语", "同位语", "双宾语", "复合谓语", "复合宾语"
+    ];
+
+    const _escapedGrammarKeywords = GRAMMAR_KEYWORDS.slice().sort((a, b) => b.length - a.length).map(k => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const GRAMMAR_KEYWORD_REGEX = new RegExp(`(${_escapedGrammarKeywords.join("|")})`, "g");
+
+    function renderExpWithGrammarKeywords(expText) {
+        if (!expText) return "";
+        const escaped = escapeBreakdownHtml(expText);
+        return escaped.replace(GRAMMAR_KEYWORD_REGEX, (match) => {
+            return `<span class="isa-grammar-keyword" data-term="${match}" title="点击查看「${match}」语境白话点拨">${match}</span>`;
+        });
+    }
+
+    function normalizeGrammarResult(raw) {
+        if (!raw) return [];
+        let items = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.points) ? raw.points : (raw && Array.isArray(raw.items) ? raw.items : []));
+        if (!Array.isArray(items) || items.length === 0) {
+            if (typeof raw === "object" && raw !== null) {
+                items = Object.keys(raw).map(k => ({ tag: k, text: String(raw[k]) }));
+            } else if (typeof raw === "string" && raw.trim()) {
+                return [{ tag: "语境点拨", text: raw.trim() }];
+            }
+        }
+        const list = [];
+        items.forEach(item => {
+            if (!item) return;
+            if (typeof item === "string" && item.trim()) {
+                list.push({ tag: "要点", text: item.trim() });
+            } else if (typeof item === "object") {
+                const tag = (item.tag || item.title || item.label || item.name || item.type || "要点").trim();
+                const text = (item.text || item.content || item.desc || item.description || item.explanation || item.detail || item.value || "").trim();
+                if (text) {
+                    list.push({ tag, text });
+                }
+            }
+        });
+        return list;
+    }
+
+    function analyzeGrammarViaZhipu(term, enChunk, expContext, fullSentence) {
+        const apiKey = getZhipuApiKey();
+        if (!apiKey) return Promise.reject(new Error("未配置智谱 API Key"));
+
+        const systemPrompt = "你是雅思与学术英语精读名师。请结合给定的英文原句与语块语境，用最通俗易懂的【大白话人话】向雅思考生点拨该语法术语在当前语境下的逻辑与用法（彻底摒弃枯燥死板的教科书术语堆砌）：\n" +
+            "【输出格式要求】：\n" +
+            "严格输出纯JSON数组，包含 2-3 个要点对象，每个对象包含 tag 和 text 两个键：\n" +
+            "1. {\"tag\": \"通俗本质\", \"text\": \"一句话大白话讲透它在人话里到底是什么意思（打通理解，如：给前面的抽象名词开小窗户交代底细）\"}\n" +
+            "2. {\"tag\": \"本句剖析\", \"text\": \"结合当前句子具体单词，讲透作者为什么在这里用它、表达了什么具体事实或逻辑\"}\n" +
+            "3. {\"tag\": \"阅读避坑\", \"text\": \"雅思阅读做题或扫读时，看到这个结构应该怎么看、怎么抓核心\"}\n\n" +
+            "不要包含任何markdown代码块如```json或闲聊前缀，只输出纯JSON数组。";
+
+        const userPrompt = `【语法术语】：${term}\n【所在语块】：${enChunk || ""}\n【语块原解析】：${expContext || ""}\n【英文原句/段落】：${fullSentence || ""}`;
+
+        const payload = {
+            model: "glm-4-flash",
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
+            ],
+            max_tokens: 600,
+            temperature: 0.1
+        };
+
+        const url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+        const reqData = JSON.stringify(payload);
+
+        return makeApiPostRequest(url, {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + apiKey
+        }, reqData, 15000).then(respText => {
+            const data = JSON.parse(respText);
+            const rawContent = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+            if (!rawContent) throw new Error("模型未返回内容");
+            const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+            const parsed = JSON.parse(cleanJsonStr);
+            return normalizeGrammarResult(parsed);
+        });
+    }
+
+    function analyzeGrammarInContext(term, enChunk, expContext, fullSentence) {
+        const cleanTerm = (term || "").trim();
+        if (!cleanTerm) return Promise.reject(new Error("语法术语为空"));
+
+        const geminiKey = getGeminiApiKey();
+        if (geminiKey) {
+            const systemPrompt = "你是雅思与学术英语精读名师。请结合给定的英文原句与语块语境，用最通俗易懂的【大白话人话】向雅思考生点拨该语法术语在当前语境下的逻辑与用法（彻底摒弃枯燥死板的教科书术语堆砌）：\n" +
+                "【输出格式要求】：\n" +
+                "严格输出纯JSON数组，包含 2-3 个要点对象，每个对象包含 tag 和 text 两个键：\n" +
+                "1. {\"tag\": \"通俗本质\", \"text\": \"一句话大白话讲透它在人话里到底是什么意思（打通理解，如：给前面的抽象名词开小窗户交代底细）\"}\n" +
+                "2. {\"tag\": \"本句剖析\", \"text\": \"结合当前句子具体单词，讲透作者为什么在这里用它、表达了什么具体事实或逻辑\"}\n" +
+                "3. {\"tag\": \"阅读避坑\", \"text\": \"雅思阅读做题或扫读时，看到这个结构应该怎么看、怎么抓核心\"}\n\n" +
+                "严格输出纯JSON数组，不要包含任何markdown代码块如```json或闲聊前缀，只输出纯JSON数组。";
+
+            const userPrompt = `【语法术语】：${cleanTerm}\n【所在语块】：${enChunk || ""}\n【语块原解析】：${expContext || ""}\n【英文原句/段落】：${fullSentence || ""}`;
+
+            return requestGeminiGeneration(userPrompt, systemPrompt, 600)
+                .then(res => normalizeGrammarResult(res))
+                .catch(err => {
+                    console.warn("[ISA] Gemini analyzeGrammar failed, fallback to Zhipu:", err);
+                    return analyzeGrammarViaZhipu(cleanTerm, enChunk, expContext, fullSentence);
+                });
+        }
+
+        return analyzeGrammarViaZhipu(cleanTerm, enChunk, expContext, fullSentence);
+    }
+
     // ==========================================
     // Paragraph Speech & CSS Highlight Tracking
     // ==========================================
@@ -3449,8 +3651,9 @@
 
                             html += `
                                 <li class="isa-breakdown-item">
-                                    <strong class="isa-breakdown-term"><span class="isa-breakdown-phrase" title="点击朗读"><span class="isa-breakdown-en">${escapeBreakdownHtml(enPart)}</span>${zhPart ? `（${escapeBreakdownHtml(zhPart)}）` : ""}</span>${subBtnHtml}：</strong><span class="isa-breakdown-desc">${escapeBreakdownHtml(expPart)}</span>
+                                    <strong class="isa-breakdown-term"><span class="isa-breakdown-phrase" title="点击朗读"><span class="isa-breakdown-en">${escapeBreakdownHtml(enPart)}</span>${zhPart ? `（${escapeBreakdownHtml(zhPart)}）` : ""}</span>${subBtnHtml}：</strong><span class="isa-breakdown-desc">${renderExpWithGrammarKeywords(expPart)}</span>
                                     <div class="isa-breakdown-sub-container" style="display: none;"></div>
+                                    <div class="isa-breakdown-grammar-container" style="display: none;"></div>
                                 </li>
                             `;
                         });
@@ -3537,7 +3740,109 @@
                             });
                     }
 
+                    function handleGrammarTermClick(span, itemLi) {
+                        const term = (span.getAttribute("data-term") || span.textContent || "").trim();
+                        if (!term) return;
+
+                        let grammarContainer = itemLi.querySelector(".isa-breakdown-grammar-container");
+                        if (!grammarContainer) {
+                            grammarContainer = document.createElement("div");
+                            grammarContainer.className = "isa-breakdown-grammar-container";
+                            itemLi.appendChild(grammarContainer);
+                        }
+
+                        // Toggle: 如果点的是同一个已加载完成的术语，则折叠/展开
+                        if (grammarContainer._currentTerm === term && grammarContainer._hasLoaded) {
+                            if (grammarContainer.style.display === "none") {
+                                grammarContainer.style.display = "block";
+                            } else {
+                                grammarContainer.style.display = "none";
+                            }
+                            return;
+                        }
+
+                        grammarContainer._cache = grammarContainer._cache || {};
+                        if (grammarContainer._cache[term]) {
+                            grammarContainer._currentTerm = term;
+                            grammarContainer._hasLoaded = true;
+                            grammarContainer.style.display = "block";
+                            renderGrammarUI(grammarContainer, term, grammarContainer._cache[term]);
+                            return;
+                        }
+
+                        grammarContainer._currentTerm = term;
+                        grammarContainer._hasLoaded = false;
+                        grammarContainer.style.display = "block";
+                        grammarContainer.innerHTML = `<div class="isa-breakdown-grammar-loading"><svg class="isa-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v4m0 12v4m-7-7H2m20 0h-4M4.9 4.9l2.8 2.8m8.6 8.6 2.8 2.8M4.9 19.1l2.8-2.8m8.6-8.6 2.8-2.8"/></svg> 正在结合语境点拨「${escapeBreakdownHtml(term)}」...</div>`;
+
+                        const enChunk = (itemLi.querySelector(".isa-breakdown-en")?.textContent || "").trim();
+                        const expContext = (itemLi.querySelector(".isa-breakdown-desc")?.textContent || "").trim();
+                        const fullSentence = textToTranslate || "";
+
+                        analyzeGrammarInContext(term, enChunk, expContext, fullSentence)
+                            .then(points => {
+                                if (!points || points.length === 0) {
+                                    grammarContainer.innerHTML = `<div class="isa-breakdown-grammar-empty">未能生成该术语的语境点拨</div>`;
+                                    return;
+                                }
+                                grammarContainer._cache[term] = points;
+                                grammarContainer._hasLoaded = true;
+                                renderGrammarUI(grammarContainer, term, points);
+                            })
+                            .catch(err => {
+                                console.warn("[ISA] Grammar analysis error:", err);
+                                grammarContainer.innerHTML = `<div class="isa-breakdown-grammar-error">点拨生成失败（点击重试）</div>`;
+                                grammarContainer.onclick = (e) => {
+                                    e.stopPropagation();
+                                    handleGrammarTermClick(span, itemLi);
+                                };
+                            });
+                    }
+
+                    function renderGrammarUI(container, term, points) {
+                        let html = `
+                            <div class="isa-breakdown-grammar-header">
+                                <span class="isa-breakdown-grammar-title">💡「${escapeBreakdownHtml(term)}」语境白话点拨</span>
+                                <button type="button" class="isa-breakdown-grammar-close" title="收起">✕</button>
+                            </div>
+                            <ul class="isa-breakdown-grammar-list">
+                        `;
+                        points.forEach(p => {
+                            html += `
+                                <li class="isa-breakdown-grammar-item">
+                                    <strong class="isa-breakdown-grammar-tag">【${escapeBreakdownHtml(p.tag)}】：</strong><span class="isa-breakdown-grammar-desc">${escapeBreakdownHtml(p.text)}</span>
+                                </li>
+                            `;
+                        });
+                        html += `</ul>`;
+                        container.innerHTML = html;
+                    }
+
                     breakdownContentEl.onclick = (e) => {
+                        const grammarCloseBtn = e.target.closest(".isa-breakdown-grammar-close");
+                        if (grammarCloseBtn) {
+                            e.stopPropagation();
+                            const gContainer = grammarCloseBtn.closest(".isa-breakdown-grammar-container");
+                            if (gContainer) {
+                                gContainer.style.display = "none";
+                            }
+                            return;
+                        }
+
+                        const grammarEl = e.target.closest(".isa-grammar-keyword");
+                        if (grammarEl) {
+                            e.stopPropagation();
+                            const itemLi = grammarEl.closest(".isa-breakdown-item");
+                            if (itemLi) {
+                                handleGrammarTermClick(grammarEl, itemLi);
+                            }
+                            return;
+                        }
+
+                        if (e.target.closest(".isa-breakdown-grammar-container")) {
+                            return;
+                        }
+
                         const subBtn = e.target.closest(".isa-breakdown-sub-btn");
                         if (subBtn) {
                             e.stopPropagation();
