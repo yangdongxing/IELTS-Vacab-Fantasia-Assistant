@@ -2731,7 +2731,7 @@
                     if (!rawContent) {
                         throw new Error("Gemini 模型未返回有效文本内容");
                     }
-                    let textToParse = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+                    let textToParse = rawContent.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
                     // Locate JSON object { ... } or array [ ... ]
                     const objMatch = textToParse.match(/\{[\s\S]*\}/);
                     const arrayMatch = textToParse.match(/\[[\s\S]*\]/);
@@ -2740,7 +2740,15 @@
                     } else if (arrayMatch) {
                         textToParse = arrayMatch[0];
                     }
-                    const parsed = JSON.parse(textToParse);
+                    let parsed;
+                    try {
+                        parsed = JSON.parse(textToParse);
+                    } catch (e1) {
+                        const sanitized = textToParse
+                            .replace(/,\s*([\}\]])/g, "$1")
+                            .replace(/[\x00-\x1F\x7F-\x9F]/g, (c) => (c === "\n" || c === "\r" || c === "\t" ? c : ""));
+                        parsed = JSON.parse(sanitized);
+                    }
                     return parsed;
                 } catch (e) {
                     console.warn("[ISA] Gemini JSON parse error on raw text:", respText);
@@ -2775,11 +2783,11 @@
             messages: [
                 {
                     role: "system",
-                    content: "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 以动词为核心，将句子拆解为3-5个核心动作或主干语块，帮助快速看懂句意骨架与逻辑脉络：\n   - 重点提取句子中的核心动词（谓语、非谓语等）及其关联的主干结构、动作对象或关键搭配；\n   - 若语块包含或紧密关联重要状语成分（如原因、结果、目的、前提条件、让步转折等），请在解析中点出其对动作的逻辑修饰关系（助理解因果与语境限定）；\n   - 简明扼要，切勿罗列枯燥死板的语法术语（用通俗白话讲清动作含义与修饰逻辑）。\n\n请直接以纯JSON对象输出（不要包含```json标记或任何多余闲聊）：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"核心动词/主干语块（可含关键状语搭配）\", \"zh\": \"中文词义\", \"exp\": \"动作指向与状语逻辑修饰解析（助快速理解句子）\"}\n  ]\n}"
+                    content: "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 以动词为核心，将文本拆解为关键动作或主干语块（单句提炼1-3个，多句段落提炼3-6个），快速梳理事实骨架与逻辑脉络：\n   - 简明主语 + 动作起点：语块需包含主语，但切勿带入冗长修饰，若主语较长仅保留核心词或代词，紧跟核心动词及关键动作对象或搭配；\n   - 捕捉核心与非谓语动词：重点提取主干谓语动词，以及承载因果/伴随/结果/目的的重要非谓语动词（如分词短语、不定式）；\n   - 联动状语逻辑：若语块关联关键状语（时间、条件、原因、让步转折等），在解析中点透其逻辑修饰意图（如时间跨度、因果推导、前提限定）；\n   - 破除被动语态：遇被动语态时，在解析中通俗点明“谁对谁施加了动作”；\n   - 通俗白话点拨：切勿堆砌枯燥死板的语法术语（讲透动作事实、修饰逻辑与功能）。\n\n严格输出纯JSON对象（禁止包含任何markdown代码块标签如```json或闲聊前缀），确保JSON语法完全合法，格式规范如下：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"简明主语 + 核心动词及关键对象/状语搭配\", \"zh\": \"中文释义\", \"exp\": \"核心动词功能 + 状语逻辑修饰解析（助快速理解）\"}\n  ]\n}"
                 },
                 { role: "user", content: cleanText }
             ],
-            max_tokens: 850,
+            max_tokens: 1500,
             temperature: 0.1
         };
 
@@ -2793,10 +2801,23 @@
             const data = JSON.parse(respText);
             const rawContent = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
             if (!rawContent) throw new Error("智谱模型未返回内容");
-            let cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+            let cleanJsonStr = (rawContent || "").replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
             const objMatch = cleanJsonStr.match(/\{[\s\S]*\}/);
-            if (objMatch) cleanJsonStr = objMatch[0];
-            const parsed = JSON.parse(cleanJsonStr);
+            const arrayMatch = cleanJsonStr.match(/\[[\s\S]*\]/);
+            if (objMatch && (!arrayMatch || objMatch.index < arrayMatch.index)) {
+                cleanJsonStr = objMatch[0];
+            } else if (arrayMatch) {
+                cleanJsonStr = arrayMatch[0];
+            }
+            let parsed;
+            try {
+                parsed = JSON.parse(cleanJsonStr);
+            } catch (e1) {
+                const sanitized = cleanJsonStr
+                    .replace(/,\s*([\}\]])/g, "$1")
+                    .replace(/[\x00-\x1F\x7F-\x9F]/g, (c) => (c === "\n" || c === "\r" || c === "\t" ? c : ""));
+                parsed = JSON.parse(sanitized);
+            }
             let chunks = parsed.chunks || (Array.isArray(parsed) ? parsed : []);
             if (Array.isArray(chunks) && chunks.length === 1 && Array.isArray(chunks[0])) {
                 chunks = chunks[0];
@@ -2816,8 +2837,8 @@
 
         const geminiKey = getGeminiApiKey();
         if (geminiKey) {
-            const systemPrompt = "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 以动词为核心，将句子拆解为3-5个核心动作或主干语块，帮助快速看懂句意骨架与逻辑脉络：\n   - 重点提取句子中的核心动词（谓语、非谓语等）及其关联的主干结构、动作对象或关键搭配；\n   - 若语块包含或紧密关联重要状语成分（如原因、结果、目的、前提条件、让步转折等），请在解析中点出其对动作的逻辑修饰关系（助理解因果与语境限定）；\n   - 简明扼要，切勿罗列枯燥死板的语法术语（用通俗白话讲清动作含义与修饰逻辑）。\n\n严格输出纯JSON对象，格式规范如下：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"核心动词/主干语块（可含关键状语搭配）\", \"zh\": \"中文词义\", \"exp\": \"动作指向与状语逻辑修饰解析（助快速理解句子）\"}\n  ]\n}";
-            return requestGeminiGeneration(cleanText, systemPrompt, 850)
+            const systemPrompt = "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 以动词为核心，将文本拆解为关键动作或主干语块（单句提炼1-3个，多句段落提炼3-6个），快速梳理事实骨架与逻辑脉络：\n   - 简明主语 + 动作起点：语块需包含主语，但切勿带入冗长修饰，若主语较长仅保留核心词或代词，紧跟核心动词及关键动作对象或搭配；\n   - 捕捉核心与非谓语动词：重点提取主干谓语动词，以及承载因果/伴随/结果/目的的重要非谓语动词（如分词短语、不定式）；\n   - 联动状语逻辑：若语块关联关键状语（时间、条件、原因、让步转折等），在解析中点透其逻辑修饰意图（如时间跨度、因果推导、前提限定）；\n   - 破除被动语态：遇被动语态时，在解析中通俗点明“谁对谁施加了动作”；\n   - 通俗白话点拨：切勿堆砌枯燥死板的语法术语（讲透动作事实、修饰逻辑与功能）。\n\n严格输出纯JSON对象（禁止包含任何markdown代码块标签如```json或闲聊前缀），确保JSON语法完全合法，格式规范如下：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"简明主语 + 核心动词及关键对象/状语搭配\", \"zh\": \"中文释义\", \"exp\": \"核心动词功能 + 状语逻辑修饰解析（助快速理解）\"}\n  ]\n}";
+            return requestGeminiGeneration(cleanText, systemPrompt, 1500)
                 .then(res => {
                     let translation = "";
                     let chunks = [];
