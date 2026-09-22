@@ -3675,6 +3675,7 @@
                             subContainer.className = "isa-breakdown-sub-container";
                             itemLi.appendChild(subContainer);
                         }
+                        subContainer.onclick = null;
 
                         if (subContainer._hasLoaded) {
                             if (subContainer.style.display === "none") {
@@ -3698,6 +3699,7 @@
                             .then(subItems => {
                                 btn.classList.remove("is-loading");
                                 btn.innerHTML = SUB_ICON_SVG;
+                                subContainer.onclick = null;
 
                                 const validSubItems = Array.isArray(subItems) ? subItems.filter(item => {
                                     if (!item || typeof item !== "object") return false;
@@ -3730,13 +3732,9 @@
                             .catch(err => {
                                 btn.classList.remove("is-loading");
                                 btn.innerHTML = SUB_ICON_SVG;
+                                subContainer.onclick = null;
                                 console.warn("[ISA] Sub-breakdown error:", err);
                                 subContainer.innerHTML = `<div class="isa-breakdown-sub-error">解构请求失败（点击重试）</div>`;
-                                subContainer.onclick = (e) => {
-                                    e.stopPropagation();
-                                    subContainer._hasLoaded = false;
-                                    handleSubBreakdownClick(btn, itemLi);
-                                };
                             });
                     }
 
@@ -3750,6 +3748,7 @@
                             grammarContainer.className = "isa-breakdown-grammar-container";
                             itemLi.appendChild(grammarContainer);
                         }
+                        grammarContainer.onclick = null;
 
                         // Toggle: 如果点的是同一个已加载完成的术语，则折叠/展开
                         if (grammarContainer._currentTerm === term && grammarContainer._hasLoaded) {
@@ -3781,6 +3780,7 @@
 
                         analyzeGrammarInContext(term, enChunk, expContext, fullSentence)
                             .then(points => {
+                                grammarContainer.onclick = null;
                                 if (!points || points.length === 0) {
                                     grammarContainer.innerHTML = `<div class="isa-breakdown-grammar-empty">未能生成该术语的语境点拨</div>`;
                                     return;
@@ -3790,12 +3790,9 @@
                                 renderGrammarUI(grammarContainer, term, points);
                             })
                             .catch(err => {
+                                grammarContainer.onclick = null;
                                 console.warn("[ISA] Grammar analysis error:", err);
                                 grammarContainer.innerHTML = `<div class="isa-breakdown-grammar-error">点拨生成失败（点击重试）</div>`;
-                                grammarContainer.onclick = (e) => {
-                                    e.stopPropagation();
-                                    handleGrammarTermClick(span, itemLi);
-                                };
                             });
                     }
 
@@ -3825,6 +3822,39 @@
                             const gContainer = grammarCloseBtn.closest(".isa-breakdown-grammar-container");
                             if (gContainer) {
                                 gContainer.style.display = "none";
+                            }
+                            return;
+                        }
+
+                        const grammarErrorEl = e.target.closest(".isa-breakdown-grammar-error");
+                        if (grammarErrorEl) {
+                            e.stopPropagation();
+                            const itemLi = grammarErrorEl.closest(".isa-breakdown-item");
+                            const gContainer = itemLi ? itemLi.querySelector(".isa-breakdown-grammar-container") : null;
+                            const term = gContainer ? gContainer._currentTerm : "";
+                            if (itemLi && term) {
+                                if (gContainer) {
+                                    gContainer._hasLoaded = false;
+                                    gContainer.onclick = null;
+                                }
+                                const span = itemLi.querySelector(`.isa-grammar-keyword[data-term="${term}"]`) || { getAttribute: () => term, textContent: term };
+                                handleGrammarTermClick(span, itemLi);
+                            }
+                            return;
+                        }
+
+                        const subErrorEl = e.target.closest(".isa-breakdown-sub-error");
+                        if (subErrorEl) {
+                            e.stopPropagation();
+                            const itemLi = subErrorEl.closest(".isa-breakdown-item");
+                            const subBtn = itemLi ? itemLi.querySelector(".isa-breakdown-sub-btn") : null;
+                            if (itemLi && subBtn) {
+                                const subContainer = itemLi.querySelector(".isa-breakdown-sub-container");
+                                if (subContainer) {
+                                    subContainer._hasLoaded = false;
+                                    subContainer.onclick = null;
+                                }
+                                handleSubBreakdownClick(subBtn, itemLi);
                             }
                             return;
                         }
