@@ -1240,24 +1240,6 @@
                 color: #0369a1 !important;
                 font-weight: 600 !important;
             }
-            .isa-trans-btn.retry {
-                display: inline-flex !important;
-                align-items: center !important;
-                gap: 3px !important;
-                color: #0284c7 !important;
-                font-weight: 500 !important;
-                background: rgba(2, 132, 199, 0.08) !important;
-                padding: 2px 7px !important;
-                border-radius: 4px !important;
-                font-size: 11.5px !important;
-                opacity: 0.85 !important;
-                transition: all 0.15s ease !important;
-            }
-            .isa-trans-btn.retry:hover {
-                background: rgba(2, 132, 199, 0.18) !important;
-                opacity: 1 !important;
-                color: #0369a1 !important;
-            }
             .isa-trans-btn.speak-unified,
             .isa-trans-btn.select-clean {
                 display: inline-flex !important;
@@ -1296,12 +1278,34 @@
                 font-weight: normal !important;
             }
             .isa-trans-loading {
-                color: #64748b !important;
-                font-style: italic !important;
+                color: #0284c7 !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                min-height: 20px !important;
+                padding: 2px 0 !important;
             }
             .isa-trans-error {
                 color: #94a3b8 !important;
                 font-size: 12.5px !important;
+            }
+            .isa-inline-retry {
+                cursor: pointer !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                margin-left: 3px !important;
+                padding: 0 3px !important;
+                user-select: none !important;
+                transition: transform 0.2s ease, opacity 0.2s ease !important;
+                opacity: 0.85 !important;
+                vertical-align: -1px !important;
+            }
+            .isa-inline-retry:hover {
+                opacity: 1 !important;
+                transform: scale(1.22) rotate(60deg) !important;
+            }
+            .isa-inline-retry:active {
+                transform: scale(0.95) rotate(180deg) !important;
             }
 
             /* Sentence Chunk Breakdown (AI) */
@@ -3075,14 +3079,13 @@
                 <div class="isa-trans-header">
                     <span class="isa-trans-title">
                         <span class="isa-trans-title-text">🌐 段落中文翻译</span>
-                        <button class="isa-trans-btn retry" style="display:none;" title="重新获取翻译与解构">🔄</button>
                     </span>
                     <span class="isa-trans-tools">
                         <button class="isa-trans-btn speak-unified" title="点击朗读段落（连续点击切换循环次数: 1-3-6-10-15，优先高保真 Siri 语音）">🎧 朗读段落</button>
                         <button class="isa-trans-btn close" title="关闭">✕</button>
                     </span>
                 </div>
-                <div class="isa-trans-content isa-trans-loading">正在翻译段落中...</div>
+                <div class="isa-trans-content isa-trans-loading"><svg class="isa-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" title="正在翻译与解构..."><path d="M12 2v4m0 12v4m-7-7H2m20 0h-4M4.9 4.9l2.8 2.8m8.6 8.6 2.8 2.8M4.9 19.1l2.8-2.8m8.6-8.6 2.8-2.8"/></svg></div>
                 <div class="isa-breakdown-container" style="display:none;">
                     <div class="isa-breakdown-content"></div>
                 </div>
@@ -3090,7 +3093,6 @@
             targetParagraph.insertAdjacentElement("afterend", transBox);
 
             const speakUnifiedBtn = transBox.querySelector(".isa-trans-btn.speak-unified");
-            const retryBtn = transBox.querySelector(".isa-trans-btn.retry");
             const closeBtn = transBox.querySelector(".isa-trans-btn.close");
 
             speakUnifiedBtn.onclick = (e) => {
@@ -3210,11 +3212,6 @@
                 }, 650);
             };
 
-            retryBtn.onclick = (e) => {
-                e.stopPropagation();
-                fetchTranslationAndBreakdown();
-            };
-
                         closeBtn.onclick = (e) => {
                 e.stopPropagation();
                 stopAllSpeech();
@@ -3230,15 +3227,21 @@
         transBox._currentEnglishText = textToTranslate;
         transBox._targetParagraph = targetParagraph;
         const contentEl = transBox.querySelector(".isa-trans-content");
-        const retryBtn = transBox.querySelector(".isa-trans-btn.retry");
 
-        function handleFail(msg) {
+        if (contentEl) {
+            contentEl.onclick = (e) => {
+                const inlineRetry = e.target.closest(".isa-inline-retry");
+                if (inlineRetry) {
+                    e.stopPropagation();
+                    fetchTranslationAndBreakdown();
+                }
+            };
+        }
+
+        function handleFail(msgHtml) {
             if (contentEl) {
                 contentEl.className = "isa-trans-content isa-trans-error";
-                contentEl.textContent = msg;
-            }
-            if (retryBtn) {
-                retryBtn.style.display = "inline-flex";
+                contentEl.innerHTML = msgHtml || `AI 请求连接超时或失败  <span class="isa-inline-retry" role="button" title="点击重试">🔄</span>`;
             }
         }
 
@@ -3252,14 +3255,13 @@
             }
             if (contentEl) {
                 contentEl.className = "isa-trans-content isa-trans-loading";
-                contentEl.textContent = "正在翻译段落与解构核心语块中...";
+                contentEl.innerHTML = `<svg class="isa-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" title="正在翻译与解构..."><path d="M12 2v4m0 12v4m-7-7H2m20 0h-4M4.9 4.9l2.8 2.8m8.6 8.6 2.8 2.8M4.9 19.1l2.8-2.8m8.6-8.6 2.8-2.8"/></svg>`;
             }
             if (breakdownContainerEl) breakdownContainerEl.style.display = "none";
             if (breakdownContentEl) {
                 breakdownContentEl.className = "isa-breakdown-content";
                 breakdownContentEl.innerHTML = "";
             }
-            if (retryBtn) retryBtn.style.display = "none";
 
             analyzeAndTranslateParagraph(textToTranslate)
                 .then(resultObj => {
@@ -3279,8 +3281,7 @@
                             contentEl.className = "isa-trans-content";
                             contentEl.textContent = translation;
                         } else {
-                            contentEl.className = "isa-trans-content isa-trans-error";
-                            contentEl.textContent = "（暂未获取到译文，请点击 🔄 重试）";
+                            handleFail(`AI 请求连接超时或失败  <span class="isa-inline-retry" role="button" title="点击重试">🔄</span>`);
                         }
                     }
 
@@ -3444,11 +3445,10 @@
                             }
                         }
                     };
-                    if (retryBtn) retryBtn.style.display = "none";
                 })
                 .catch(err => {
                     console.warn("[ISA] analyzeAndTranslateParagraph failed:", err);
-                    handleFail("（AI 请求连接超时或失败，请检查网络后点击 🔄 重试）");
+                    handleFail(`AI 请求连接超时或失败  <span class="isa-inline-retry" role="button" title="点击重试">🔄</span>`);
                 });
         }
 
