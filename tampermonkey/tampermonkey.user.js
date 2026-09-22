@@ -1191,6 +1191,12 @@
                 transition: all 0.2s ease !important;
                 box-sizing: border-box !important;
             }
+            .isa-paragraph-translation.is-compact {
+                padding: 7px 14px !important;
+            }
+            .isa-paragraph-translation.is-compact .isa-trans-header {
+                margin-bottom: 0 !important;
+            }
             .isa-trans-header {
                 display: flex !important;
                 justify-content: space-between !important;
@@ -1201,10 +1207,40 @@
             .isa-trans-title {
                 display: inline-flex !important;
                 align-items: center !important;
-                gap: 5px !important;
+                gap: 6px !important;
                 font-size: 12px !important;
                 font-weight: 600 !important;
                 color: #0284c7 !important;
+            }
+            .isa-trans-status {
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                line-height: 1 !important;
+                color: #0284c7 !important;
+                vertical-align: middle !important;
+            }
+            .isa-trans-reload-btn {
+                background: transparent !important;
+                border: none !important;
+                cursor: pointer !important;
+                font-size: 12.5px !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                line-height: 1 !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                transition: transform 0.2s ease, opacity 0.2s ease !important;
+                opacity: 0.85 !important;
+                user-select: none !important;
+            }
+            .isa-trans-reload-btn:hover {
+                opacity: 1 !important;
+                transform: scale(1.22) rotate(60deg) !important;
+            }
+            .isa-trans-reload-btn:active {
+                transform: scale(0.95) rotate(180deg) !important;
             }
             .isa-trans-tools {
                 display: inline-flex !important;
@@ -1276,36 +1312,6 @@
             .isa-trans-content {
                 color: #1e293b !important;
                 font-weight: normal !important;
-            }
-            .isa-trans-loading {
-                color: #0284c7 !important;
-                display: inline-flex !important;
-                align-items: center !important;
-                min-height: 20px !important;
-                padding: 2px 0 !important;
-            }
-            .isa-trans-error {
-                color: #94a3b8 !important;
-                font-size: 12.5px !important;
-            }
-            .isa-inline-retry {
-                cursor: pointer !important;
-                display: inline-flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                margin-left: 3px !important;
-                padding: 0 3px !important;
-                user-select: none !important;
-                transition: transform 0.2s ease, opacity 0.2s ease !important;
-                opacity: 0.85 !important;
-                vertical-align: -1px !important;
-            }
-            .isa-inline-retry:hover {
-                opacity: 1 !important;
-                transform: scale(1.22) rotate(60deg) !important;
-            }
-            .isa-inline-retry:active {
-                transform: scale(0.95) rotate(180deg) !important;
             }
 
             /* Sentence Chunk Breakdown (AI) */
@@ -3095,18 +3101,19 @@
         let transBox = targetParagraph.nextElementSibling;
         if (!transBox || !transBox.classList.contains("isa-paragraph-translation")) {
             transBox = document.createElement("div");
-            transBox.className = "isa-paragraph-translation";
+            transBox.className = "isa-paragraph-translation is-compact";
             transBox.innerHTML = `
                 <div class="isa-trans-header">
                     <span class="isa-trans-title">
                         <span class="isa-trans-title-text">🌐 段落中文翻译</span>
+                        <span class="isa-trans-status"><svg class="isa-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" title="正在翻译与解构..."><path d="M12 2v4m0 12v4m-7-7H2m20 0h-4M4.9 4.9l2.8 2.8m8.6 8.6 2.8 2.8M4.9 19.1l2.8-2.8m8.6-8.6 2.8-2.8"/></svg></span>
                     </span>
                     <span class="isa-trans-tools">
                         <button class="isa-trans-btn speak-unified" title="点击朗读段落（连续点击切换循环次数: 1-3-6-10-15，优先高保真 Siri 语音）">🎧 朗读段落</button>
                         <button class="isa-trans-btn close" title="关闭">✕</button>
                     </span>
                 </div>
-                <div class="isa-trans-content isa-trans-loading"><svg class="isa-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" title="正在翻译与解构..."><path d="M12 2v4m0 12v4m-7-7H2m20 0h-4M4.9 4.9l2.8 2.8m8.6 8.6 2.8 2.8M4.9 19.1l2.8-2.8m8.6-8.6 2.8-2.8"/></svg></div>
+                <div class="isa-trans-content" style="display:none;"></div>
                 <div class="isa-breakdown-container" style="display:none;">
                     <div class="isa-breakdown-content"></div>
                 </div>
@@ -3248,35 +3255,53 @@
         transBox._currentEnglishText = textToTranslate;
         transBox._targetParagraph = targetParagraph;
         const contentEl = transBox.querySelector(".isa-trans-content");
+        const statusEl = transBox.querySelector(".isa-trans-status");
 
-        if (contentEl) {
-            contentEl.onclick = (e) => {
-                const inlineRetry = e.target.closest(".isa-inline-retry");
-                if (inlineRetry) {
+        if (statusEl) {
+            statusEl.onclick = (e) => {
+                const reloadBtn = e.target.closest(".isa-trans-reload-btn");
+                if (reloadBtn) {
                     e.stopPropagation();
                     fetchTranslationAndBreakdown();
                 }
             };
         }
 
-        function handleFail(msgHtml) {
-            if (contentEl) {
-                contentEl.className = "isa-trans-content isa-trans-error";
-                contentEl.innerHTML = msgHtml || `AI 请求连接超时或失败  <span class="isa-inline-retry" role="button" title="点击重试">🔄</span>`;
-            }
-        }
-
         const breakdownContainerEl = transBox.querySelector(".isa-breakdown-container");
         const breakdownContentEl = transBox.querySelector(".isa-breakdown-content");
 
-        function fetchTranslationAndBreakdown() {
+        function handleFail() {
+            transBox.classList.add("is-compact");
             const titleEl = transBox.querySelector(".isa-trans-title-text");
             if (titleEl) {
                 titleEl.textContent = "🌐 段落中文翻译";
             }
+            if (statusEl) {
+                statusEl.innerHTML = `<button type="button" class="isa-trans-reload-btn" title="AI 请求连接超时或失败，点击重新获取">🔄</button>`;
+                statusEl.style.display = "inline-flex";
+            }
             if (contentEl) {
-                contentEl.className = "isa-trans-content isa-trans-loading";
-                contentEl.innerHTML = `<svg class="isa-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" title="正在翻译与解构..."><path d="M12 2v4m0 12v4m-7-7H2m20 0h-4M4.9 4.9l2.8 2.8m8.6 8.6 2.8 2.8M4.9 19.1l2.8-2.8m8.6-8.6 2.8-2.8"/></svg>`;
+                contentEl.style.display = "none";
+                contentEl.innerHTML = "";
+            }
+            if (breakdownContainerEl) {
+                breakdownContainerEl.style.display = "none";
+            }
+        }
+
+        function fetchTranslationAndBreakdown() {
+            transBox.classList.add("is-compact");
+            const titleEl = transBox.querySelector(".isa-trans-title-text");
+            if (titleEl) {
+                titleEl.textContent = "🌐 段落中文翻译";
+            }
+            if (statusEl) {
+                statusEl.innerHTML = `<svg class="isa-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" title="正在翻译与解构..."><path d="M12 2v4m0 12v4m-7-7H2m20 0h-4M4.9 4.9l2.8 2.8m8.6 8.6 2.8 2.8M4.9 19.1l2.8-2.8m8.6-8.6 2.8-2.8"/></svg>`;
+                statusEl.style.display = "inline-flex";
+            }
+            if (contentEl) {
+                contentEl.style.display = "none";
+                contentEl.innerHTML = "";
             }
             if (breakdownContainerEl) breakdownContainerEl.style.display = "none";
             if (breakdownContentEl) {
@@ -3290,20 +3315,27 @@
                     const items = (resultObj && resultObj.chunks) || [];
                     const source = (resultObj && resultObj.source) || (getGeminiApiKey() ? "gemini" : "zhipu");
 
+                    if (!translation) {
+                        handleFail();
+                        return;
+                    }
+
                     // 1. 标题标记 API 归属（Gemini / 智谱 AI）
                     const modelName = source === "gemini" ? "Gemini" : "智谱 AI";
                     if (titleEl) {
                         titleEl.textContent = `🌐 段落中文翻译 (${modelName})`;
                     }
+                    if (statusEl) {
+                        statusEl.innerHTML = "";
+                        statusEl.style.display = "none";
+                    }
 
-                    // 2. 填充整句学术翻译
+                    // 2. 展开卡片并填充整句学术翻译
+                    transBox.classList.remove("is-compact");
                     if (contentEl) {
-                        if (translation) {
-                            contentEl.className = "isa-trans-content";
-                            contentEl.textContent = translation;
-                        } else {
-                            handleFail(`AI 请求连接超时或失败  <span class="isa-inline-retry" role="button" title="点击重试">🔄</span>`);
-                        }
+                        contentEl.style.display = "block";
+                        contentEl.className = "isa-trans-content";
+                        contentEl.textContent = translation;
                     }
 
                     const SUB_ICON_SVG = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="18" r="3"></circle><path d="M6 9v3a3 3 0 0 0 3 3h6"></path></svg>`;
@@ -3469,7 +3501,7 @@
                 })
                 .catch(err => {
                     console.warn("[ISA] analyzeAndTranslateParagraph failed:", err);
-                    handleFail(`AI 请求连接超时或失败  <span class="isa-inline-retry" role="button" title="点击重试">🔄</span>`);
+                    handleFail();
                 });
         }
 
