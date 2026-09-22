@@ -2720,7 +2720,10 @@
                 try {
                     const data = JSON.parse(respText);
                     const candidate = data.candidates && data.candidates[0];
-                    const rawContent = candidate && candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text;
+                    let rawContent = "";
+                    if (candidate && candidate.content && candidate.content.parts) {
+                        rawContent = candidate.content.parts.map(p => p.text || "").join("\n");
+                    }
                     if (!rawContent) {
                         throw new Error("Gemini 模型未返回有效文本内容");
                     }
