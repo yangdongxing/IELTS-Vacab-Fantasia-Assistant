@@ -2768,7 +2768,7 @@
             messages: [
                 {
                     role: "system",
-                    content: "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 将句子拆解为3-5个核心语义语块，并提供帮助理解句意与帮助记忆的有效解析：\n   - 重点说明该语块在句子中的实际含义、表达事实或逻辑角色；\n   - 提供核心词的记忆窍门、固定搭配或同义替换，帮助牢固掌握；\n   - 切勿罗列枯燥死板的语法术语（不要分析主谓宾、定语从句、分词等结构名称）。\n\n请直接以纯JSON对象输出（不要包含```json标记或任何多余闲聊）：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"核心英文语块\", \"zh\": \"中文词义\", \"exp\": \"语境含义点拨与记忆搭配（助理解、助记忆）\"}\n  ]\n}"
+                    content: "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 以动词为核心，将句子拆解为3-5个核心动作或主干语块，帮助快速看懂和梳理句意：\n   - 重点提取句子中的核心动词（谓语、非谓语等）及其关联的主干结构、动作对象或核心搭配；\n   - 简明扼要地说明该语块在句子中的动作指向或逻辑走向，帮助快速抓取句子核心意思；\n   - 切勿罗列枯燥死板的语法术语（不要出现主谓宾、定语从句等名词）。\n\n请直接以纯JSON对象输出（不要包含```json标记或任何多余闲聊）：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"核心动词/主干语块\", \"zh\": \"中文词义\", \"exp\": \"动作指向与句意功能解析（助快速理解句子）\"}\n  ]\n}"
                 },
                 { role: "user", content: cleanText }
             ],
@@ -2809,7 +2809,7 @@
 
         const geminiKey = getGeminiApiKey();
         if (geminiKey) {
-            const systemPrompt = "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 将句子拆解为3-5个核心语义语块，并提供帮助理解句意与帮助记忆的有效解析：\n   - 重点说明该语块在句子中的实际含义、表达事实或逻辑角色；\n   - 提供核心词的记忆窍门、固定搭配或同义替换，帮助牢固掌握；\n   - 切勿罗列枯燥死板的语法术语（不要分析主谓宾、定语从句、分词等结构名称）。\n\n严格输出纯JSON对象，格式规范如下：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"核心英文语块\", \"zh\": \"中文词义\", \"exp\": \"语境含义点拨与记忆搭配（助理解、助记忆）\"}\n  ]\n}";
+            const systemPrompt = "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 以动词为核心，将句子拆解为3-5个核心动作或主干语块，帮助快速看懂和梳理句意：\n   - 重点提取句子中的核心动词（谓语、非谓语等）及其关联的主干结构、动作对象或核心搭配；\n   - 简明扼要地说明该语块在句子中的动作指向或逻辑走向，帮助快速抓取句子核心意思；\n   - 切勿罗列枯燥死板的语法术语（不要出现主谓宾、定语从句等名词）。\n\n严格输出纯JSON对象，格式规范如下：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"核心动词/主干语块\", \"zh\": \"中文词义\", \"exp\": \"动作指向与句意功能解析（助快速理解句子）\"}\n  ]\n}";
             return requestGeminiGeneration(cleanText, systemPrompt, 850)
                 .then(res => {
                     let translation = "";
@@ -3286,9 +3286,24 @@
                     let html = `<div class="isa-breakdown-header">📖 核心语块深度解构</div>`;
                     html += `<ul class="isa-breakdown-list">`;
                     items.forEach(c => {
-                        const enPart = (c.en || c.chunk || "").trim();
-                        const zhPart = (c.zh || "").trim();
-                        const expPart = (c.exp || c.explanation || "").trim();
+                        if (!c || typeof c !== "object") return;
+                        const enPart = (c.en || c.chunk || c.phrase || c.english || "").trim();
+                        const zhPart = (c.zh || c.chinese || c.meaning || c.translation || "").trim();
+                        let expPart = (c.exp || c.explanation || c.desc || c.description || c.analysis || c.note || c.detail || c.context || c.usage || "").trim();
+                        
+                        // 兜底提取：如果常见 key 都没命中，遍历对象找出不是 enPart 和 zhPart 的字符串字段
+                        if (!expPart) {
+                            for (const key of Object.keys(c)) {
+                                if (!["en", "chunk", "phrase", "english", "zh", "chinese", "meaning", "translation"].includes(key.toLowerCase())) {
+                                    const val = c[key];
+                                    if (typeof val === "string" && val.trim() && val.trim() !== enPart && val.trim() !== zhPart) {
+                                        expPart = val.trim();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
                         const subBtnHtml = `<button type="button" class="isa-breakdown-sub-btn" title="进一步解构此语块" data-en="${escapeBreakdownHtml(enPart)}">${SUB_ICON_SVG}</button>`;
 
                         html += `
