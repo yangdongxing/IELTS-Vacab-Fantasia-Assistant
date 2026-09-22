@@ -2779,6 +2779,89 @@
         return tryCallModel(0);
     }
 
+    // 递归扁平化与字段容错解构：兼容单层一维数组、按句子划分的多维嵌套数组、带包装对象的语块返回
+    function normalizeChunks(raw) {
+        if (!raw) return [];
+        const list = [];
+
+        function extract(item) {
+            if (!item) return;
+            if (Array.isArray(item)) {
+                item.forEach(extract);
+                return;
+            }
+            if (typeof item === "object") {
+                const en = (item.en || item.chunk || item.phrase || item.english || item.verb || item.action || item.text || "").trim();
+                const zh = (item.zh || item.chinese || item.meaning || item.translation || "").trim();
+                let exp = (item.exp || item.explanation || item.desc || item.description || item.analysis || item.note || item.detail || item.context || item.usage || "").trim();
+
+                // 若包含有效 en 或 zh，则优先视作有效语块项
+                if (en || zh) {
+                    if (!exp) {
+                        for (const key of Object.keys(item)) {
+                            if (!["en", "chunk", "phrase", "english", "verb", "action", "text", "zh", "chinese", "meaning", "translation", "sentence"].includes(key.toLowerCase())) {
+                                const val = item[key];
+                                if (typeof val === "string" && val.trim() && val.trim() !== en && val.trim() !== zh) {
+                                    exp = val.trim();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    list.push({ en, zh, exp });
+                    return;
+                }
+
+                // 若自身没有 en/zh，检查是否是外层包装对象（如按句子包裹子数组：{ sentence: "...", chunks: [...] }）
+                let foundSubArray = false;
+                for (const key of Object.keys(item)) {
+                    if (Array.isArray(item[key]) && item[key].length > 0) {
+                        foundSubArray = true;
+                        item[key].forEach(extract);
+                    }
+                }
+                if (foundSubArray) return;
+
+                // 若无子数组且含有解析说明
+                if (exp) {
+                    list.push({ en, zh, exp });
+                }
+            }
+        }
+
+        if (Array.isArray(raw)) {
+            raw.forEach(extract);
+        } else if (typeof raw === "object") {
+            const sub = raw.chunks || raw.items || raw.phrases || raw.list || raw.data;
+            if (Array.isArray(sub)) {
+                sub.forEach(extract);
+            } else {
+                extract(raw);
+            }
+        }
+
+        return list;
+    }
+
+    const PARAGRAPH_ANALYSIS_SYSTEM_PROMPT = "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n" +
+        "1. 提供地道、通顺、符合学术规范的中文全句翻译。\n" +
+        "2. 以动词为核心，将文本拆解为关键动作或主干语块（单句提炼1-3个，多句段落提炼3-6个），快速梳理事实骨架与逻辑脉络：\n" +
+        "   - 简明主语 + 动作起点：语块需包含主语，但切勿带入冗长修饰，若主语较长仅保留核心词或代词，紧跟核心动词及关键动作对象或搭配；\n" +
+        "   - 捕捉核心与非谓语动词：重点提取主干谓语动词，以及承载因果/伴随/结果/目的的重要非谓语动词（如分词短语、不定式）；\n" +
+        "   - 联动状语逻辑：若语块关联关键状语（时间、条件、原因、让步转折等），在解析中点透其逻辑修饰意图（如时间跨度、因果推导、前提限定）；\n" +
+        "   - 破除被动语态：遇被动语态时，在解析中通俗点明“谁对谁施加了动作”；\n" +
+        "   - 通俗白话点拨：切勿堆砌枯燥死板的语法术语（讲透动作事实、修饰逻辑与功能）。\n\n" +
+        "【输出格式强制规范】：\n" +
+        "- chunks 必须且只能是严格的单层扁平一维数组（Flat Array）。无论输入文本包含单句还是多个句子，严禁按句子嵌套二维数组（如 [[...],[...]]），严禁按句子创建多层对象包裹！\n" +
+        "- 数组中每个对象必须直接且固定包含 \"en\", \"zh\", \"exp\" 三个键名，严禁遗漏或使用其他键名。\n\n" +
+        "严格输出纯JSON对象（禁止包含任何markdown代码块标签如```json或闲聊前缀），确保JSON语法完全合法，格式规范如下：\n" +
+        "{\n" +
+        "  \"translation\": \"全句地道中文学术翻译\",\n" +
+        "  \"chunks\": [\n" +
+        "    {\"en\": \"简明主语 + 核心动词及关键对象/状语搭配\", \"zh\": \"中文释义\", \"exp\": \"核心动词功能 + 状语逻辑修饰解析（助快速理解）\"}\n" +
+        "  ]\n" +
+        "}";
+
     // 智谱 GLM-4-Flash 联合学术翻译与核心语块解构
     function analyzeAndTranslateViaZhipu(cleanText) {
         const apiKey = getZhipuApiKey();
@@ -2789,7 +2872,7 @@
             messages: [
                 {
                     role: "system",
-                    content: "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 以动词为核心，将文本拆解为关键动作或主干语块（单句提炼1-3个，多句段落提炼3-6个），快速梳理事实骨架与逻辑脉络：\n   - 简明主语 + 动作起点：语块需包含主语，但切勿带入冗长修饰，若主语较长仅保留核心词或代词，紧跟核心动词及关键动作对象或搭配；\n   - 捕捉核心与非谓语动词：重点提取主干谓语动词，以及承载因果/伴随/结果/目的的重要非谓语动词（如分词短语、不定式）；\n   - 联动状语逻辑：若语块关联关键状语（时间、条件、原因、让步转折等），在解析中点透其逻辑修饰意图（如时间跨度、因果推导、前提限定）；\n   - 破除被动语态：遇被动语态时，在解析中通俗点明“谁对谁施加了动作”；\n   - 通俗白话点拨：切勿堆砌枯燥死板的语法术语（讲透动作事实、修饰逻辑与功能）。\n\n严格输出纯JSON对象（禁止包含任何markdown代码块标签如```json或闲聊前缀），确保JSON语法完全合法，格式规范如下：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"简明主语 + 核心动词及关键对象/状语搭配\", \"zh\": \"中文释义\", \"exp\": \"核心动词功能 + 状语逻辑修饰解析（助快速理解）\"}\n  ]\n}"
+                    content: PARAGRAPH_ANALYSIS_SYSTEM_PROMPT
                 },
                 { role: "user", content: cleanText }
             ],
@@ -2824,13 +2907,10 @@
                     .replace(/[\x00-\x1F\x7F-\x9F]/g, (c) => (c === "\n" || c === "\r" || c === "\t" ? c : ""));
                 parsed = JSON.parse(sanitized);
             }
-            let chunks = parsed.chunks || (Array.isArray(parsed) ? parsed : []);
-            if (Array.isArray(chunks) && chunks.length === 1 && Array.isArray(chunks[0])) {
-                chunks = chunks[0];
-            }
+            let rawChunks = (parsed && parsed.chunks) || (Array.isArray(parsed) ? parsed : []);
             return {
-                translation: (parsed.translation || "").trim(),
-                chunks: Array.isArray(chunks) ? chunks : []
+                translation: ((parsed && parsed.translation) || "").trim(),
+                chunks: normalizeChunks(rawChunks)
             };
         });
     }
@@ -2843,21 +2923,21 @@
 
         const geminiKey = getGeminiApiKey();
         if (geminiKey) {
-            const systemPrompt = "你是雅思与学术英语阅读精读专家。请对输入的英文句子/段落完成两项任务：\n1. 提供地道、通顺、符合学术规范的中文全句翻译。\n2. 以动词为核心，将文本拆解为关键动作或主干语块（单句提炼1-3个，多句段落提炼3-6个），快速梳理事实骨架与逻辑脉络：\n   - 简明主语 + 动作起点：语块需包含主语，但切勿带入冗长修饰，若主语较长仅保留核心词或代词，紧跟核心动词及关键动作对象或搭配；\n   - 捕捉核心与非谓语动词：重点提取主干谓语动词，以及承载因果/伴随/结果/目的的重要非谓语动词（如分词短语、不定式）；\n   - 联动状语逻辑：若语块关联关键状语（时间、条件、原因、让步转折等），在解析中点透其逻辑修饰意图（如时间跨度、因果推导、前提限定）；\n   - 破除被动语态：遇被动语态时，在解析中通俗点明“谁对谁施加了动作”；\n   - 通俗白话点拨：切勿堆砌枯燥死板的语法术语（讲透动作事实、修饰逻辑与功能）。\n\n严格输出纯JSON对象（禁止包含任何markdown代码块标签如```json或闲聊前缀），确保JSON语法完全合法，格式规范如下：\n{\n  \"translation\": \"全句地道中文学术翻译\",\n  \"chunks\": [\n    {\"en\": \"简明主语 + 核心动词及关键对象/状语搭配\", \"zh\": \"中文释义\", \"exp\": \"核心动词功能 + 状语逻辑修饰解析（助快速理解）\"}\n  ]\n}";
-            return requestGeminiGeneration(cleanText, systemPrompt, 1500)
+            return requestGeminiGeneration(cleanText, PARAGRAPH_ANALYSIS_SYSTEM_PROMPT, 1500)
                 .then(res => {
                     let translation = "";
-                    let chunks = [];
+                    let rawChunks = [];
                     if (res && typeof res === "object" && !Array.isArray(res)) {
                         translation = (res.translation || "").trim();
-                        chunks = Array.isArray(res.chunks) ? res.chunks : [];
+                        rawChunks = res.chunks || [];
                     } else if (Array.isArray(res)) {
-                        chunks = res;
+                        rawChunks = res;
                     }
-                    if (Array.isArray(chunks) && chunks.length === 1 && Array.isArray(chunks[0])) {
-                        chunks = chunks[0];
-                    }
-                    return { translation, chunks, source: "gemini" };
+                    return {
+                        translation,
+                        chunks: normalizeChunks(rawChunks),
+                        source: "gemini"
+                    };
                 })
                 .catch(err => {
                     console.warn("[ISA] Gemini analyzeAndTranslate failed, fallback to Zhipu:", err);
@@ -2898,7 +2978,7 @@
             if (!rawContent) throw new Error("模型未返回内容");
             const cleanJsonStr = rawContent.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
             const parsed = JSON.parse(cleanJsonStr);
-            return Array.isArray(parsed) ? parsed : (Array.isArray(parsed.chunks) ? parsed.chunks : []);
+            return normalizeChunks(parsed);
         });
     }
 
@@ -2911,11 +2991,7 @@
         if (geminiKey) {
             const systemPrompt = "你是雅思与学术英语精读专家。请将输入的英文短语进一步深入拆解为2-4个核心词组搭配或最小语义单元，并提供中文词义与记忆拓展（重点说明语境含义、搭配技巧或记忆窍门，切勿分析主谓宾等语法术语）。严格输出纯JSON数组（不要有任何额外文字前缀或解释），格式规范如下：\n[\n  {\"en\": \"核心子语块/词组\", \"zh\": \"中文词义\", \"exp\": \"语境含义点拨与记忆搭配\"}\n]";
             return requestGeminiGeneration(cleanText, systemPrompt, 450)
-                .then(res => {
-                    let items = Array.isArray(res) ? res : (Array.isArray(res && res.chunks) ? res.chunks : []);
-                    if (Array.isArray(items) && items.length === 1 && Array.isArray(items[0])) items = items[0];
-                    return items;
-                })
+                .then(res => normalizeChunks(res))
                 .catch(err => {
                     console.warn("[ISA] Gemini analyzeSubChunk failed, fallback to Zhipu:", err);
                     return analyzeSubChunkViaZhipu(cleanText);
@@ -3340,44 +3416,56 @@
 
                     const SUB_ICON_SVG = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="18" r="3"></circle><path d="M6 9v3a3 3 0 0 0 3 3h6"></path></svg>`;
 
-                    let html = `<div class="isa-breakdown-header">📖 核心语块深度解构</div>`;
-                    html += `<ul class="isa-breakdown-list">`;
-                    items.forEach(c => {
-                        if (!c || typeof c !== "object") return;
-                        const enPart = (c.en || c.chunk || c.phrase || c.english || "").trim();
+                    const validItems = Array.isArray(items) ? items.filter(c => {
+                        if (!c || typeof c !== "object") return false;
+                        const enPart = (c.en || c.chunk || c.phrase || c.english || c.verb || c.action || "").trim();
                         const zhPart = (c.zh || c.chinese || c.meaning || c.translation || "").trim();
-                        let expPart = (c.exp || c.explanation || c.desc || c.description || c.analysis || c.note || c.detail || c.context || c.usage || "").trim();
-                        
-                        // 兜底提取：如果常见 key 都没命中，遍历对象找出不是 enPart 和 zhPart 的字符串字段
-                        if (!expPart) {
-                            for (const key of Object.keys(c)) {
-                                if (!["en", "chunk", "phrase", "english", "zh", "chinese", "meaning", "translation"].includes(key.toLowerCase())) {
-                                    const val = c[key];
-                                    if (typeof val === "string" && val.trim() && val.trim() !== enPart && val.trim() !== zhPart) {
-                                        expPart = val.trim();
-                                        break;
+                        const expPart = (c.exp || c.explanation || c.desc || c.description || c.analysis || "").trim();
+                        return Boolean(enPart || zhPart || expPart);
+                    }) : [];
+
+                    if (validItems.length > 0) {
+                        let html = `<div class="isa-breakdown-header">📖 核心语块深度解构</div>`;
+                        html += `<ul class="isa-breakdown-list">`;
+                        validItems.forEach(c => {
+                            const enPart = (c.en || c.chunk || c.phrase || c.english || c.verb || c.action || "").trim();
+                            const zhPart = (c.zh || c.chinese || c.meaning || c.translation || "").trim();
+                            let expPart = (c.exp || c.explanation || c.desc || c.description || c.analysis || c.note || c.detail || c.context || c.usage || "").trim();
+                            
+                            // 兜底提取：如果常见 key 都没命中，遍历对象找出不是 enPart 和 zhPart 的字符串字段
+                            if (!expPart) {
+                                for (const key of Object.keys(c)) {
+                                    if (!["en", "chunk", "phrase", "english", "verb", "action", "zh", "chinese", "meaning", "translation"].includes(key.toLowerCase())) {
+                                        const val = c[key];
+                                        if (typeof val === "string" && val.trim() && val.trim() !== enPart && val.trim() !== zhPart) {
+                                            expPart = val.trim();
+                                            break;
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        const subBtnHtml = `<button type="button" class="isa-breakdown-sub-btn" title="进一步解构此语块" data-en="${escapeBreakdownHtml(enPart)}">${SUB_ICON_SVG}</button>`;
+                            const subBtnHtml = enPart ? `<button type="button" class="isa-breakdown-sub-btn" title="进一步解构此语块" data-en="${escapeBreakdownHtml(enPart)}">${SUB_ICON_SVG}</button>` : "";
 
-                        html += `
-                            <li class="isa-breakdown-item">
-                                <strong class="isa-breakdown-term"><span class="isa-breakdown-phrase" title="点击朗读"><span class="isa-breakdown-en">${escapeBreakdownHtml(enPart)}</span>${zhPart ? `（${escapeBreakdownHtml(zhPart)}）` : ""}</span>${subBtnHtml}：</strong><span class="isa-breakdown-desc">${escapeBreakdownHtml(expPart)}</span>
-                                <div class="isa-breakdown-sub-container" style="display: none;"></div>
-                            </li>
-                        `;
-                    });
-                    html += `</ul>`;
+                            html += `
+                                <li class="isa-breakdown-item">
+                                    <strong class="isa-breakdown-term"><span class="isa-breakdown-phrase" title="点击朗读"><span class="isa-breakdown-en">${escapeBreakdownHtml(enPart)}</span>${zhPart ? `（${escapeBreakdownHtml(zhPart)}）` : ""}</span>${subBtnHtml}：</strong><span class="isa-breakdown-desc">${escapeBreakdownHtml(expPart)}</span>
+                                    <div class="isa-breakdown-sub-container" style="display: none;"></div>
+                                </li>
+                            `;
+                        });
+                        html += `</ul>`;
 
-                    breakdownContentEl.className = "isa-breakdown-content";
-                    breakdownContentEl.innerHTML = html;
-                    if (breakdownContainerEl) breakdownContainerEl.style.display = "block";
+                        breakdownContentEl.className = "isa-breakdown-content";
+                        breakdownContentEl.innerHTML = html;
+                        if (breakdownContainerEl) breakdownContainerEl.style.display = "block";
+                    } else {
+                        if (breakdownContainerEl) breakdownContainerEl.style.display = "none";
+                    }
 
                     function handleSubBreakdownClick(btn, itemLi) {
-                        const enText = btn.getAttribute("data-en") || "";
+                        const enText = (btn.getAttribute("data-en") || "").trim();
+                        if (!enText) return;
                         let subContainer = itemLi.querySelector(".isa-breakdown-sub-container");
                         if (!subContainer) {
                             subContainer = document.createElement("div");
@@ -3408,7 +3496,12 @@
                                 btn.classList.remove("is-loading");
                                 btn.innerHTML = SUB_ICON_SVG;
 
-                                if (!subItems || !Array.isArray(subItems) || subItems.length === 0) {
+                                const validSubItems = Array.isArray(subItems) ? subItems.filter(item => {
+                                    if (!item || typeof item !== "object") return false;
+                                    return Boolean((item.en || item.chunk || "").trim() || (item.zh || "").trim() || (item.exp || item.explanation || "").trim());
+                                }) : [];
+
+                                if (validSubItems.length === 0) {
                                     subContainer.innerHTML = `<div class="isa-breakdown-sub-empty">未拆解出更细粒度语块</div>`;
                                     return;
                                 }
@@ -3418,7 +3511,7 @@
                                 btn.title = "收起解构";
 
                                 let subHtml = `<ul class="isa-breakdown-sub-list">`;
-                                subItems.forEach(item => {
+                                validSubItems.forEach(item => {
                                     const subEn = (item.en || item.chunk || "").trim();
                                     const subZh = (item.zh || "").trim();
                                     const subExp = (item.exp || item.explanation || "").trim();
