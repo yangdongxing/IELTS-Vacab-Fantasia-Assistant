@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.3.6
-// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。单次统一AI驱动学术整句翻译与核心语块深度解构（Gemini 3.5 Flash-Lite / 智谱 GLM 自动降级），Tips气泡与大图例句覆层100%对齐，支持中英双语Siri自然语音连播与拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
+// @version      2.3.5
+// @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。单次统一AI驱动学术整句翻译与核心语块深度解构（Gemini 3.5 Flash-Lite / 智谱 GLM 自动降级），Tips气泡与大图例句覆层100%对齐，支持拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
 // @author       极客助手
 // @match        *://*/*
 // @match        file:///*
@@ -358,17 +358,11 @@
     const stopModalSpeech = stopAllSpeech;
     const stopModalExampleSpeech = stopAllSpeech;
 
-    function startSiriPlayback(text, count = 1, options = {}) {
+    function startSiriPlayback(text, count = 1) {
         return fetch("http://127.0.0.1:8777/api/siri_speak", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                action: "speak",
-                text,
-                count,
-                lang: options.lang || "en",
-                voice: options.voice || null
-            })
+            body: JSON.stringify({ action: "speak", text, count })
         }).then(res => {
             if (!res.ok) throw new Error("HTTP " + res.status);
             return res.json();
@@ -381,90 +375,36 @@
             .catch(() => ({ speaking: false }));
     }
 
-    function speakChinese(text, onEnd = null, options = {}) {
-        const cleanText = (text || "").trim();
-        if (!cleanText) {
+    function speakChinese(text, onEnd = null) {
+        if (!text) {
             if (typeof onEnd === "function") onEnd();
             return;
         }
-
-        let isCompleted = false;
-        const triggerEnd = () => {
-            if (isCompleted) return;
-            isCompleted = true;
-            if (activeSpeechSSE) {
-                try { activeSpeechSSE.close(); } catch (e) {}
-                activeSpeechSSE = null;
-            }
-            if (activeSpeechPollTimer) {
-                clearInterval(activeSpeechPollTimer);
-                activeSpeechPollTimer = null;
-            }
+        if (!window.speechSynthesis) {
             if (typeof onEnd === "function") onEnd();
-        };
-
-        const runBrowserFallback = () => {
-            if (!window.speechSynthesis) {
-                triggerEnd();
-                return;
+            return;
+        }
+        try {
+            window.speechSynthesis.cancel();
+            if (window.speechSynthesis.paused) {
+                window.speechSynthesis.resume();
             }
-            try {
-                window.speechSynthesis.cancel();
+            const utter = new SpeechSynthesisUtterance(text);
+            _applyVoice(utter, "zh-CN");
+            if (typeof onEnd === "function") {
+                utter.onend = onEnd;
+                utter.onerror = onEnd;
+            }
+            setTimeout(() => {
                 if (window.speechSynthesis.paused) {
                     window.speechSynthesis.resume();
                 }
-                const utter = new SpeechSynthesisUtterance(cleanText);
-                _applyVoice(utter, "zh-CN");
-                utter.onend = triggerEnd;
-                utter.onerror = triggerEnd;
-                setTimeout(() => {
-                    if (window.speechSynthesis.paused) {
-                        window.speechSynthesis.resume();
-                    }
-                    window.speechSynthesis.speak(utter);
-                }, 50);
-            } catch (e) {
-                console.warn("[ISA] speakChinese browser fallback error:", e);
-                triggerEnd();
-            }
-        };
-
-        // 优先呼叫本地 Siri 语音服务朗读中文
-        startSiriPlayback(cleanText, 1, { lang: "zh", voice: options.voice || null })
-            .then(() => {
-                try {
-                    const es = new EventSource("http://127.0.0.1:8777/api/siri_events");
-                    activeSpeechSSE = es;
-
-                    es.onmessage = (event) => {
-                        try {
-                            const data = JSON.parse(event.data);
-                            if (data.type === "done" || data.type === "stop") {
-                                triggerEnd();
-                            }
-                        } catch (parseErr) {
-                            console.warn("[ISA] Siri SSE parse error (zh):", parseErr);
-                        }
-                    };
-
-                    es.onerror = () => {};
-
-                    if (activeSpeechPollTimer) clearInterval(activeSpeechPollTimer);
-                    activeSpeechPollTimer = setInterval(() => {
-                        checkSiriStatus().then(st => {
-                            if (!st || !st.speaking) {
-                                triggerEnd();
-                            }
-                        }).catch(() => triggerEnd());
-                    }, 500);
-                } catch (esErr) {
-                    runBrowserFallback();
-                }
-            })
-            .catch(() => {
-                // 本地服务未开启时自动平滑降级至浏览器原生中文语音
-                runBrowserFallback();
-            });
+                window.speechSynthesis.speak(utter);
+            }, 50);
+        } catch (e) {
+            console.warn("[ISA] speakChinese error:", e);
+            if (typeof onEnd === "function") onEnd();
+        }
     }
 
     function playEnglishSpeech(text, options = {}) {
@@ -576,7 +516,7 @@
         };
 
         // Request native Siri playback via local server
-        startSiriPlayback(cleanText, count, { lang: "en" })
+        startSiriPlayback(cleanText, count)
             .then(() => {
                 if (typeof options.onStart === "function") {
                     options.onStart();
@@ -2138,25 +2078,6 @@
             }
             requestAnimationFrame(focusMemoryAnswer);
         });
-
-        if (memoryModalRefs.translation) {
-            memoryModalRefs.translation.addEventListener("click", () => {
-                stopSiriPlayback();
-                stopModalSpeech();
-                if (currentMemoryData && currentMemoryData.d) {
-                    const cleanZh = formatChineseDefinitionForSpeech(currentMemoryData.d);
-                    if (cleanZh) {
-                        memoryModalRefs.translation.classList.add("is-speaking");
-                        speakChinese(cleanZh, () => {
-                            if (memoryModalRefs && memoryModalRefs.translation) {
-                                memoryModalRefs.translation.classList.remove("is-speaking");
-                            }
-                        });
-                    }
-                }
-                requestAnimationFrame(focusMemoryAnswer);
-            });
-        }
 
         if (memoryModalRefs.exampleChinese) {
             memoryModalRefs.exampleChinese.addEventListener("click", () => {
