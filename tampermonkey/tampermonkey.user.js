@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.3.6
+// @version      2.3.7
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。单次统一AI驱动学术整句翻译与核心语块深度解构（Gemini 3.5 Flash-Lite / 智谱 GLM 自动降级），Tips气泡与大图例句覆层100%对齐，支持拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
 // @author       极客助手
 // @match        *://*/*
@@ -1116,20 +1116,24 @@
                 pointer-events: none !important;
             }
 
-            /* Floating Trigger Button (Textured Obsidian Black -> Vibrant Radiant Red on Hover) */
+            /* Floating Trigger Button (AI Intelligence Aesthetic) */
             .isa-trigger-btn {
                 position: fixed !important;
-                background: linear-gradient(180deg, #24292f 0%, #15191e 100%) !important;
+                background: linear-gradient(135deg, #181926 0%, #10121a 100%) !important;
                 color: #ffffff !important;
                 border-radius: 9999px !important;
                 padding: 7px 18px 7px 13px !important;
-                box-shadow: 0 8px 24px -3px rgba(0, 0, 0, 0.45), 0 3px 8px -2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+                /* Multi-layered shadow with subtle futuristic purple/violet aura */
+                box-shadow: 0 8px 24px -3px rgba(0, 0, 0, 0.5),
+                            0 0 0 1px rgba(168, 85, 247, 0.28),
+                            0 0 16px -2px rgba(147, 51, 234, 0.22),
+                            inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
                 display: flex !important;
                 align-items: center !important;
                 gap: 8px !important;
                 cursor: pointer !important;
                 pointer-events: auto !important;
-                transition: all 0.24s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+                transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
                 z-index: 100000 !important;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
                 font-size: 14.5px !important;
@@ -1138,13 +1142,38 @@
                 border: 1px solid rgba(255, 255, 255, 0.16) !important;
                 user-select: none !important;
                 -webkit-user-select: none !important;
+                overflow: hidden !important;
                 animation: isaPop 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
             }
+            /* AI Shimmer light sweep */
+            .isa-trigger-btn::after {
+                content: "" !important;
+                position: absolute !important;
+                top: -50% !important;
+                left: -120% !important;
+                width: 50% !important;
+                height: 200% !important;
+                background: linear-gradient(
+                    90deg,
+                    transparent 0%,
+                    rgba(255, 255, 255, 0.22) 50%,
+                    transparent 100%
+                ) !important;
+                transform: rotate(25deg) !important;
+                pointer-events: none !important;
+                animation: isaAiShimmer 3.6s infinite ease-in-out !important;
+            }
+            @keyframes isaAiShimmer {
+                0% { left: -120%; }
+                25%, 100% { left: 160%; }
+            }
             .isa-trigger-btn:hover {
-                transform: translateY(-2.5px) scale(1.035) !important;
-                background: linear-gradient(180deg, #ff2e5b 0%, #e1143f 100%) !important;
-                border: 1px solid rgba(255, 255, 255, 0.32) !important;
-                box-shadow: 0 12px 28px -3px rgba(225, 20, 63, 0.65), 0 5px 12px -2px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+                transform: translateY(-2.5px) scale(1.04) !important;
+                background: linear-gradient(135deg, #ff2e5b 0%, #e1143f 50%, #d91244 100%) !important;
+                border-color: rgba(255, 255, 255, 0.38) !important;
+                box-shadow: 0 12px 28px -3px rgba(225, 20, 63, 0.65),
+                            0 0 20px 2px rgba(255, 46, 91, 0.4),
+                            inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
             }
             .isa-trigger-btn:active {
                 transform: translateY(0.5px) scale(0.985) !important;
@@ -1152,23 +1181,32 @@
                 box-shadow: 0 5px 14px -2px rgba(190, 18, 60, 0.5), inset 0 2px 4px rgba(0, 0, 0, 0.2) !important;
             }
             .isa-trigger-btn svg {
-                width: 19px !important;
-                height: 19px !important;
-                fill: none !important;
-                stroke: #ffffff !important;
-                stroke-width: 2.2 !important;
-                stroke-linecap: round !important;
-                stroke-linejoin: round !important;
-                transition: transform 0.22s ease !important;
+                width: 18px !important;
+                height: 18px !important;
+                transition: transform 0.25s ease, filter 0.25s ease !important;
                 flex-shrink: 0 !important;
+                animation: isaSparklePulse 3.6s infinite ease-in-out !important;
+                position: relative !important;
+                z-index: 1 !important;
+            }
+            @keyframes isaSparklePulse {
+                0%, 100% { transform: scale(1) rotate(0deg); opacity: 0.95; }
+                50% { transform: scale(1.12) rotate(6deg); opacity: 1; filter: drop-shadow(0 0 3px rgba(216, 180, 254, 0.8)); }
             }
             .isa-trigger-btn:hover svg {
-                transform: rotate(-4deg) scale(1.08) !important;
+                transform: rotate(8deg) scale(1.15) !important;
+                filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.9)) !important;
+                animation: none !important;
+            }
+            .isa-trigger-btn:hover svg path {
+                fill: #ffffff !important;
             }
             .isa-trigger-text {
                 color: #ffffff !important;
                 white-space: nowrap !important;
                 line-height: 1 !important;
+                position: relative !important;
+                z-index: 1 !important;
             }
 
             @keyframes isaPop {
@@ -3959,9 +3997,16 @@
         const btn = document.createElement("div");
         btn.className = "isa-trigger-btn";
         btn.innerHTML = `
-            <svg viewBox="0 0 24 24">
-                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+            <svg class="isa-trigger-icon" viewBox="0 0 24 24" fill="none">
+                <path d="M11 2C11 7 7 11 2 11C7 11 11 15 11 20C11 15 15 11 20 11C15 11 11 7 11 2Z" fill="url(#isaAiGrad)"/>
+                <path d="M19 14.5C19 17 17 19 14.5 19C17 19 19 21 19 23.5C19 21 21 19 23.5 19C21 19 19 17 19 14.5Z" fill="url(#isaAiGrad)" opacity="0.88"/>
+                <defs>
+                    <linearGradient id="isaAiGrad" x1="2" y1="2" x2="23.5" y2="23.5" gradientUnits="userSpaceOnUse">
+                        <stop offset="0%" stop-color="#c084fc"/>
+                        <stop offset="50%" stop-color="#f472b6"/>
+                        <stop offset="100%" stop-color="#ffffff"/>
+                    </linearGradient>
+                </defs>
             </svg>
             <span class="isa-trigger-text">IELTS Vocab (${matchCount})</span>
         `;
