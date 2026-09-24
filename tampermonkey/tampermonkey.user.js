@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         雅思真经划词划划看 (IELTS Selection Assistant)
 // @namespace    https://github.com/yangdongxing/IELTS-Vacab-Fantasia
-// @version      2.3.7
+// @version      2.3.8
 // @description  划选任意网页文本，一键在正文中直接标注《雅思词汇真经》核心词汇。单次统一AI驱动学术整句翻译与核心语块深度解构（Gemini 3.5 Flash-Lite / 智谱 GLM 自动降级），Tips气泡与大图例句覆层100%对齐，支持拼写校验交互，段落下自动插入神经双语对照卡片、[🎧 朗读段落] 1-3-6-10-15 阶梯连播与毫秒级音词高亮追踪（未启动本地服务时自动平滑降级为浏览器原生语音，零破坏剪贴板）。
 // @author       极客助手
 // @match        *://*/*
@@ -1175,8 +1175,8 @@
             }
             .isa-trigger-btn svg.isa-trigger-icon-sparkle {
                 position: absolute !important;
-                top: -3.5px !important;
-                right: -4.5px !important;
+                top: 0px !important;
+                right: -7px !important;
                 width: 11px !important;
                 height: 11px !important;
                 fill: #ffffff !important;
