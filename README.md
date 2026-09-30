@@ -193,6 +193,7 @@ IELTS-Vacab-Fantasia-Assistant/
 ├── server.py                       # 极简 macOS Siri 语音中继服务（可选）
 ├── start.command                   # 双击一键启动 Siri 语音服务
 ├── data/
+│   ├── manifest_vocab.json         # 词库清单数据（3633 词，WebP 格式配图）
 │   ├── dictionary.json             # 词库数据（3631 词）
 │   └── sample.mp4                  # 演示录屏视频
 └── tampermonkey/                   # 油猴脚本
